@@ -49,8 +49,8 @@ COMMANDS = {
         "WELCOME", "GOODBYE", "ANTISTICKER", "ANTIBOT",
         "GSTATUS", "OPEN", "CLOSE", "WARN", "RESETLINK",
         "ANTIGROUPMENTION"
-    ]
-}
+    
+
 
 
 def send_message(to, message):
