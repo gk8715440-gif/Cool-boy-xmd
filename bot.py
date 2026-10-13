@@ -51,7 +51,7 @@ COMMANDS = {
         "ANTIGROUPMENTION"
     ]
 }
-
+MY_IMAGE_URL = "tolink" send_image()
 
 def send_message(to, message):
     """Send a WhatsApp text message using the Cloud API."""
