@@ -472,7 +472,23 @@ if __name__ == "__main__":
         port=int(os.getenv("PORT", "5000"))
 )
 
+MENU_IMAGE_URL =
 
+"https://raw.githubusercontent.com>
+
+slash gk8715440
+
+dash gif slash Cool dash boy dash xmd slash
+
+9f7c5eff67da87a6d22
+
+dash 38d9fc9ed dash 40cd472 clash
+
+file underscore
+
+00000000 bef c7209 aer
+
+4.png
 
 
 
