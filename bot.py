@@ -149,7 +149,7 @@ def process_command(sender, text):
         )
         return
 
-    if command in ("MENU", "GMENU", "FUNMENU", "HELP"):
+    if command in ("MENU", "GMENU", "FUNMENU", "HELP")।
         send_message(sender, make_menu())
         return
 
