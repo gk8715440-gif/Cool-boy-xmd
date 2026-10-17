@@ -3,7 +3,6 @@ import baileys from '@whiskeysockets/baileys';
 import pino from 'pino';
 import express from 'express';
 
-
 const useMultiFileAuthState =
   baileys.useMultiFileAuthState ||
   baileys.default?.useMultiFileAuthState;
@@ -12,13 +11,9 @@ const DisconnectReason =
   baileys.DisconnectReason ||
   baileys.default?.DisconnectReason;
 
-const {
-  useMultiFileAuthState,
-  DisconnectReason
-} = baileys;
-
 const app = express();
 const PORT = process.env.PORT || 3000;
+
 
 const PHONE_NUMBER = (process.env.PHONE_NUMBER || '')
   .replace(/\D/g, '');
