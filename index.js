@@ -1,4 +1,3 @@
-
 import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
@@ -16,6 +15,8 @@ const OWNER_NUMBER = (process.env.OWNER_NUMBER || '').replace(/\D/g, '');
 
 const PREFIX = '.';
 const BOT_NAME = 'Cool-boy-xmd';
+
+// YOUR MENU IMAGE LINK
 const MENU_IMAGE =
   'https://raw.githubusercontent.com/gk8715440-gif/Cool-boy-xmd/main/file_0000000012548243bf5dee8a3c0b406a.png';
 
@@ -26,13 +27,9 @@ let sock;
 let reconnecting = false;
 let stopping = false;
 
-// Settings remain in memory while the process runs.
 const groupSettings = new Map();
 
-// =========================
 // WEB SERVER
-// =========================
-
 app.get('/', (req, res) => {
   res.send(`${BOT_NAME} WhatsApp Bot is running!`);
 });
@@ -45,10 +42,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Web server running on port ${PORT}`);
 });
 
-// =========================
-// COMMAND MENU
-// =========================
-
+// FULL MENU
 const menu = `
 ╭━━━〔 👑 COOL BOY XMD 〕━━━╮
 ┃ 🤖 WHATSAPP BOT MENU
@@ -192,10 +186,7 @@ Bot: ${BOT_NAME}
 ╰━━━━━━━━━━━━━━━━━━━━━━╯
 `;
 
-// =========================
 // HELPERS
-// =========================
-
 function getText(message) {
   return (
     message?.conversation ||
@@ -269,10 +260,7 @@ async function isBotAdmin(groupId) {
   );
 }
 
-// =========================
 // COMMAND HANDLER
-// =========================
-
 async function processCommand(sender, messageText, message) {
   const text = messageText.trim();
   if (!text.startsWith(PREFIX)) return;
@@ -290,7 +278,7 @@ async function processCommand(sender, messageText, message) {
   const isOwner =
     OWNER_NUMBER !== '' && senderNumber === OWNER_NUMBER;
 
-  const reply = async (content) => {
+  const reply = async content => {
     await sock.sendMessage(
       sender,
       { text: content },
@@ -316,21 +304,20 @@ async function processCommand(sender, messageText, message) {
     return true;
   };
 
-  // MENU WITH YOUR UPLOADED IMAGE
-
+  // MENU IMAGE + MENU TEXT
   if (['menu', 'help'].includes(command)) {
     try {
       await sock.sendMessage(
         sender,
         {
           image: { url: MENU_IMAGE },
-          caption: `👑 ${BOT_NAME}\n🤖 WhatsApp Bot Menu\n\nনিচে সব কমান্ড দেখো।\nPrefix: ${PREFIX}`
+          caption: `👑 ${BOT_NAME}\n🤖 WhatsApp Bot Menu\nPrefix: ${PREFIX}`
         },
         { quoted: message }
       );
     } catch (error) {
       console.error('Menu image error:', error.message);
-      await reply(`👑 ${BOT_NAME}\n${MENU_IMAGE}`);
+      await reply(`ছবিটি পাঠানো যায়নি। ছবির লিংক পরীক্ষা করো:\n${MENU_IMAGE}`);
     }
 
     await reply(menu);
@@ -338,7 +325,6 @@ async function processCommand(sender, messageText, message) {
   }
 
   // GENERAL COMMANDS
-
   if (command === 'ping') {
     await reply('🏓 Pong! Bot is running.');
     return;
@@ -375,7 +361,7 @@ async function processCommand(sender, messageText, message) {
     return;
   }
 
-  if (command === 'mee' || command === 'jid' || command === 'gjid') {
+  if (['mee', 'jid', 'gjid'].includes(command)) {
     await reply(
       `Your JID: ${senderJid}\nGroup: ${isGroup ? sender : 'Private chat'}`
     );
@@ -419,8 +405,7 @@ async function processCommand(sender, messageText, message) {
     return;
   }
 
-  // GROUP ADMIN COMMANDS
-
+  // GROUP COMMANDS
   if (command === 'groupinfo') {
     if (!(await requireGroup())) return;
 
@@ -439,25 +424,33 @@ async function processCommand(sender, messageText, message) {
     const metadata = await getGroupInfo(sender);
     const admins = metadata.participants.filter(p => p.admin);
 
-    await sock.sendMessage(sender, {
-      text: '👑 Group Admins\n\n' +
-        admins.map(p => `@${getNumber(p.id)}`).join('\n'),
-      mentions: admins.map(p => p.id)
-    }, { quoted: message });
+    await sock.sendMessage(
+      sender,
+      {
+        text: '👑 Group Admins\n\n' +
+          admins.map(p => `@${getNumber(p.id)}`).join('\n'),
+        mentions: admins.map(p => p.id)
+      },
+      { quoted: message }
+    );
     return;
   }
 
-  if (command === 'tagall' || command === 'tag' || command === 'mention') {
+  if (['tagall', 'tag', 'mention'].includes(command)) {
     if (!(await requireAdmin())) return;
 
     const metadata = await getGroupInfo(sender);
     const mentions = metadata.participants.map(p => p.id);
 
-    await sock.sendMessage(sender, {
-      text: `📢 ${args.join(' ') || 'Attention everyone!'}\n\n` +
-        mentions.map(jid => `@${getNumber(jid)}`).join('\n'),
-      mentions
-    }, { quoted: message });
+    await sock.sendMessage(
+      sender,
+      {
+        text: `📢 ${args.join(' ') || 'Attention everyone!'}\n\n` +
+          mentions.map(jid => `@${getNumber(jid)}`).join('\n'),
+        mentions
+      },
+      { quoted: message }
+    );
     return;
   }
 
@@ -477,14 +470,15 @@ async function processCommand(sender, messageText, message) {
       return;
     }
 
-    const action = command === 'kick'
-      ? 'remove'
-      : command === 'promote'
-        ? 'promote'
-        : 'demote';
+    const action =
+      command === 'kick'
+        ? 'remove'
+        : command === 'promote'
+          ? 'promote'
+          : 'demote';
 
     await sock.groupParticipantsUpdate(sender, mentioned, action);
-    await reply(`✅ ${command} কমান্ড সম্পন্ন করার অনুরোধ পাঠানো হয়েছে।`);
+    await reply(`✅ ${command} কমান্ডের অনুরোধ পাঠানো হয়েছে।`);
     return;
   }
 
@@ -501,20 +495,23 @@ async function processCommand(sender, messageText, message) {
       command === 'open' ? 'not_announcement' : 'announcement'
     );
 
-    await reply(command === 'open'
-      ? '✅ গ্রুপ সবার মেসেজের জন্য খুলে দেওয়া হয়েছে।'
-      : '🔒 গ্রুপ শুধু Admin-দের মেসেজের জন্য বন্ধ করা হয়েছে।'
+    await reply(
+      command === 'open'
+        ? '✅ গ্রুপ সবার মেসেজের জন্য খুলে দেওয়া হয়েছে।'
+        : '🔒 গ্রুপ শুধু Admin-দের মেসেজের জন্য বন্ধ করা হয়েছে।'
     );
     return;
   }
 
   if (command === 'setname') {
     if (!(await requireAdmin())) return;
+
     const name = args.join(' ');
     if (!name) {
       await reply('ব্যবহার: .setname নতুন গ্রুপের নাম');
       return;
     }
+
     await sock.groupUpdateSubject(sender, name);
     await reply('✅ Group name update request sent.');
     return;
@@ -522,19 +519,19 @@ async function processCommand(sender, messageText, message) {
 
   if (command === 'setdesc') {
     if (!(await requireAdmin())) return;
+
     const description = args.join(' ');
     if (!description) {
       await reply('ব্যবহার: .setdesc নতুন বিবরণ');
       return;
     }
+
     await sock.groupUpdateDescription(sender, description);
     await reply('✅ Group description update request sent.');
     return;
   }
 
-  // ANTI-LINK SETTING
-  // Bot must be a group admin to delete other members' messages.
-
+  // ANTI-LINK
   if (command === 'antilink') {
     if (!(await requireAdmin())) return;
 
@@ -542,7 +539,10 @@ async function processCommand(sender, messageText, message) {
     const option = (args[0] || '').toLowerCase();
 
     if (!['on', 'off'].includes(option)) {
-      await reply(`Anti-link: ${s.antilink ? 'ON' : 'OFF'}\nচালু: .antilink on\nবন্ধ: .antilink off`);
+      await reply(
+        `Anti-link: ${s.antilink ? 'ON' : 'OFF'}\n` +
+        'চালু: .antilink on\nবন্ধ: .antilink off'
+      );
       return;
     }
 
@@ -551,11 +551,12 @@ async function processCommand(sender, messageText, message) {
     return;
   }
 
-  // DELETE A QUOTED MESSAGE
+  // DELETE A REPLIED-TO MESSAGE
   if (command === 'delete' || command === 'del') {
-    if (!isGroup || !(await requireAdmin())) return;
+    if (!(await requireAdmin())) return;
 
     const quoted = message.message?.extendedTextMessage?.contextInfo;
+
     if (!quoted?.stanzaId || !quoted?.participant) {
       await reply('যে মেসেজ মুছতে চাও সেটিতে Reply করে .delete লেখো।');
       return;
@@ -577,10 +578,9 @@ async function processCommand(sender, messageText, message) {
     return;
   }
 
-  // SETTINGS THAT ARE NOT IMPLEMENTED YET
-  // Do not pretend unsupported features work.
-
+  // COMMANDS THAT STILL NEED THEIR OWN INTEGRATION
   const needsIntegration = [
+    'pair',
     'csong', 'lyrics', 'play', 'song',
     'fb', 'insta', 'pinterest', 'terabox', 'video', 'xnxx',
     'addspk', 'brat', 'circle', 'delspk', 'miku', 'spk',
@@ -593,9 +593,10 @@ async function processCommand(sender, messageText, message) {
     'mute', 'resetwarn', 'revoke', 'testgoodbye', 'testwelcome',
     'unmute', 'warn', 'warns', 'welcome',
     'antidelete', 'ban', 'block', 'broadcast', 'chr', 'cpost',
-    'join', 'listban', 'mode', 'restart', 'sudo', 'totalbot',
-    'unban', 'unblock', 'alwaysonline', 'autoreact', 'autoread',
-    'autotyping', 'autostatus', 'lid', 'url', 'vv', 'vv2', 'weather'
+    'fullpp', 'join', 'listban', 'mode', 'restart', 'sudo',
+    'totalbot', 'unban', 'unblock', 'alwaysonline', 'autoreact',
+    'autoread', 'autotyping', 'autostatus', 'lid', 'url', 'vv',
+    'vv2', 'weather', 'greact'
   ];
 
   if (needsIntegration.includes(command)) {
@@ -603,24 +604,23 @@ async function processCommand(sender, messageText, message) {
       await reply(
         `🎵 .${command} কমান্ডের নাম মেনুতে আছে।\n` +
         'গান চালানোর জন্য আলাদা music search/download integration লাগবে।\n' +
-        'এই কোডে এখনো সেই integration যোগ করা নেই।'
+        'এই কোডে সেই integration এখনও যোগ করা নেই।'
       );
       return;
     }
 
     await reply(
-      `⚠️ .${command} কমান্ডটি মেনুতে আছে, কিন্তু এর কার্যকর ফিচার এখনো যোগ করা হয়নি।`
+      `⚠️ .${command} কমান্ডটি মেনুতে আছে, কিন্তু এর কার্যকর ফিচার এখনও যোগ করা হয়নি।`
     );
     return;
   }
 
-  await reply(`❓ অজানা কমান্ড: ${PREFIX}${command}\nসব কমান্ড দেখতে .menu লেখো।`);
+  await reply(
+    `❓ অজানা কমান্ড: ${PREFIX}${command}\nসব কমান্ড দেখতে .menu লেখো।`
+  );
 }
 
-// =========================
 // START WHATSAPP BOT
-// =========================
-
 async function startBot() {
   if (reconnecting || stopping) return;
   reconnecting = true;
@@ -641,7 +641,7 @@ async function startBot() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('connection.update', async (update) => {
+    sock.ev.on('connection.update', async update => {
       const { connection, lastDisconnect } = update;
 
       if (connection === 'connecting') {
@@ -692,7 +692,7 @@ async function startBot() {
 
           const text = getText(message.message);
 
-          // Basic anti-link moderation for enabled groups.
+          // ANTI-LINK MODERATION
           if (
             sender.endsWith('@g.us') &&
             text &&
@@ -732,25 +732,27 @@ async function startBot() {
   } catch (error) {
     console.error('Bot startup error:', error);
     reconnecting = false;
-    if (!stopping) setTimeout(startBot, 10000);
+
+    if (!stopping) {
+      setTimeout(startBot, 10000);
+    }
     return;
   }
 
   reconnecting = false;
 }
 
-// =========================
 // SHUTDOWN
-// =========================
-
 process.on('SIGTERM', async () => {
   stopping = true;
   console.log('Shutting down bot...');
+
   try {
     if (sock) sock.end(undefined);
   } catch (error) {
     console.error(error.message);
   }
+
   process.exit(0);
 });
 
