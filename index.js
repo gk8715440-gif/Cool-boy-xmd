@@ -1,12 +1,12 @@
+import makeWASocket from '@whiskeysockets/baileys';
 
-import makeWASocket, {
+import {
   useMultiFileAuthState,
   DisconnectReason
 } from '@whiskeysockets/baileys';
 
 import pino from 'pino';
 import express from 'express';
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
