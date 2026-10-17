@@ -1,121 +1,278 @@
 
-import baileys from '@whiskeysockets/baileys';
+import makeWASocket, {
+  useMultiFileAuthState,
+  DisconnectReason
+} from '@whiskeysockets/baileys';
+
 import pino from 'pino';
 import express from 'express';
-
-const useMultiFileAuthState =
-  baileys.useMultiFileAuthState ||
-  baileys.default?.useMultiFileAuthState;
-
-const DisconnectReason =
-  baileys.DisconnectReason ||
-  baileys.default?.DisconnectReason;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-
-const PHONE_NUMBER = (process.env.PHONE_NUMBER || '')
-  .replace(/\D/g, '');
-
-const OWNER_NUMBER = (process.env.OWNER_NUMBER || '')
-  .replace(/\D/g, '');
-
+const PHONE_NUMBER = (process.env.PHONE_NUMBER || '').replace(/\D/g, '');
+const OWNER_NUMBER = (process.env.OWNER_NUMBER || '').replace(/\D/g, '');
 const MENU_IMAGE = process.env.MENU_IMAGE || '';
+
 const PREFIX = '.';
 const START_TIME = Date.now();
 
 const logger = pino({ level: 'silent' });
 
 let sock;
-let pairingRequested = false;
 let reconnecting = false;
-let starting = false;
+
+// ==============================
+// WEB SERVER
+// ==============================
 
 app.get('/', (req, res) => {
-  res.send('COOL-BOY-XMD WhatsApp Bot is running!');
+  res.send('Cool-boy-xmd WhatsApp Bot is running!');
 });
 
 app.get('/health', (req, res) => {
   res.json({
     status: 'running',
-    whatsapp: sock?.user ? 'connected' : 'disconnected'
+    bot: 'Cool-boy-xmd'
   });
 });
 
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Web server running on port ${PORT}`);
 });
 
-function getText(msg) {
-  let m = msg.message;
-  if (!m) return '';
+// ==============================
+// HELPERS
+// ==============================
 
-  // Handle common WhatsApp message wrappers.
-  m = m.ephemeralMessage?.message || m;
-  m = m.viewOnceMessage?.message || m;
-  m = m.viewOnceMessageV2?.message || m;
-
+function getText(message) {
   return (
-    m.conversation ||
-    m.extendedTextMessage?.text ||
-    m.imageMessage?.caption ||
-    m.videoMessage?.caption ||
-    m.documentMessage?.caption ||
+    message?.conversation ||
+    message?.extendedTextMessage?.text ||
+    message?.imageMessage?.caption ||
+    message?.videoMessage?.caption ||
+    message?.buttonsResponseMessage?.selectedButtonId ||
+    message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
     ''
-  ).trim();
+  );
 }
 
 function getUptime() {
-  const total = Math.floor(
-    (Date.now() - START_TIME) / 1000
-  );
+  const seconds = Math.floor((Date.now() - START_TIME) / 1000);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remaining = seconds % 60;
 
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-
-  return `${h}h ${m}m ${s}s`;
+  return `${hours}h ${minutes}m ${remaining}s`;
 }
 
-function makeMenu() {
-  return `╭━━━〔 COOL-BOY-XMD 〕━━━╮
+function getMenu() {
+  return `╭━━━〔 COOL BOY XMD 〕━━━╮
 ┃
-┃ 👑 OWNER
-┃ ${PREFIX}owner
-┃ ${PREFIX}alive
+┃ 🤖 WhatsApp Bot Menu
+┃
+┃ GENERAL
+┃ ${PREFIX}menu
+┃ ${PREFIX}help
 ┃ ${PREFIX}ping
+┃ ${PREFIX}alive
 ┃ ${PREFIX}uptime
-┃
-┃ 🎵 MEDIA
-┃ ${PREFIX}song
-┃ ${PREFIX}play
-┃ ${PREFIX}video
-┃ ${PREFIX}sticker
-┃
-┃ 🤖 AI / TOOLS
-┃ ${PREFIX}gpt
+┃ ${PREFIX}owner
 ┃ ${PREFIX}github
 ┃
-┃ 👥 GROUP
+┃ GROUP MANAGEMENT
 ┃ ${PREFIX}tagall
-┃ ${PREFIX}hidetag
-┃ ${PREFIX}kick
-┃ ${PREFIX}promote
-┃ ${PREFIX}demote
-┃ ${PREFIX}open
-┃ ${PREFIX}close
-┃ ${PREFIX}antilink
+┃ ${PREFIX}kick @mention
+┃ ${PREFIX}promote @mention
+┃ ${PREFIX}demote @mention
 ┃
-╰━━━━━━━━━━━━━━━━━━╯
+┃ MEDIA / AI
+┃ .song (integration required)
+┃ .play (integration required)
+┃ .video (integration required)
+┃ .sticker (not implemented)
+┃ .gpt (AI integration required)
+┃
+╰━━━━━━━━━━━━━━━━━━━━━━╯
 
-⚠️ কিছু কমান্ডের হ্যান্ডলার এখনো যোগ করা হয়নি।
-Powered by COOL-BOY-XMD`;
+Prefix: ${PREFIX}
+Bot: Cool-boy-xmd`;
 }
 
+// ==============================
+// COMMAND HANDLER
+// ==============================
+
+async function processCommand(sender, messageText, message) {
+  const text = messageText.trim();
+
+  if (!text.startsWith(PREFIX)) return;
+
+  const parts = text.slice(PREFIX.length).trim().split(/\s+/);
+  const command = (parts.shift() || '').toLowerCase();
+
+  const args = parts;
+  const isGroup = sender.endsWith('@g.us');
+  const senderNumber = (message.key.participant || sender)
+    .split('@')[0]
+    .replace(/\D/g, '');
+
+  const isOwner =
+    OWNER_NUMBER !== '' && senderNumber === OWNER_NUMBER;
+
+  const reply = async (text) => {
+    await sock.sendMessage(
+      sender,
+      { text },
+      { quoted: message }
+    );
+  };
+
+  // GENERAL COMMANDS
+
+  if (command === 'menu' || command === 'help') {
+    if (MENU_IMAGE.startsWith('https://') ||
+        MENU_IMAGE.startsWith('http://')) {
+      try {
+        await sock.sendMessage(
+          sender,
+          {
+            image: { url: MENU_IMAGE },
+            caption: getMenu()
+          },
+          { quoted: message }
+        );
+      } catch {
+        await reply(getMenu());
+      }
+    } else {
+      await reply(getMenu());
+    }
+    return;
+  }
+
+  if (command === 'ping') {
+    await reply('🏓 Pong! Cool-boy-xmd is running.');
+    return;
+  }
+
+  if (command === 'alive') {
+    await reply(
+      `✅ Cool-boy-xmd is alive!\n⏱️ Uptime: ${getUptime()}`
+    );
+    return;
+  }
+
+  if (command === 'uptime') {
+    await reply(`⏱️ Bot uptime: ${getUptime()}`);
+    return;
+  }
+
+  if (command === 'owner') {
+    await reply(
+      OWNER_NUMBER
+        ? `👑 Owner: +${OWNER_NUMBER}`
+        : 'Owner number is not configured in Render.'
+    );
+    return;
+  }
+
+  if (command === 'github') {
+    await reply(
+      'GitHub repository:\nhttps://github.com/gk8715440-gif/Cool-boy-xmd'
+    );
+    return;
+  }
+
+  // GROUP COMMANDS
+
+  if (['tagall', 'kick', 'promote', 'demote'].includes(command)) {
+    if (!isGroup) {
+      await reply('❌ এই কমান্ড শুধু গ্রুপে ব্যবহার করা যাবে।');
+      return;
+    }
+
+    if (!isOwner) {
+      const metadata = await sock.groupMetadata(sender);
+      const participant = metadata.participants.find(
+        p => p.id === (message.key.participant || sender)
+      );
+
+      const isAdmin =
+        participant?.admin === 'admin' ||
+        participant?.admin === 'superadmin';
+
+      if (!isAdmin) {
+        await reply('❌ এই কমান্ড ব্যবহার করতে গ্রুপ অ্যাডমিন হতে হবে।');
+        return;
+      }
+    }
+
+    const mentioned =
+      message.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+
+    if (command === 'tagall') {
+      const metadata = await sock.groupMetadata(sender);
+      const mentions = metadata.participants.map(p => p.id);
+
+      const body = args.join(' ') || 'Group members';
+
+      await sock.sendMessage(sender, {
+        text:
+          `📢 ${body}\n\n` +
+          mentions.map(jid => `@${jid.split('@')[0]}`).join('\n'),
+        mentions
+      });
+      return;
+    }
+
+    if (mentioned.length === 0) {
+      await reply(`ব্যবহার: .${command} @mention`);
+      return;
+    }
+
+    if (command === 'kick') {
+      await sock.groupParticipantsUpdate(sender, mentioned, 'remove');
+      await reply('✅ সদস্য সরানোর অনুরোধ পাঠানো হয়েছে।');
+      return;
+    }
+
+    if (command === 'promote') {
+      await sock.groupParticipantsUpdate(sender, mentioned, 'promote');
+      await reply('✅ সদস্যকে অ্যাডমিন করার অনুরোধ পাঠানো হয়েছে।');
+      return;
+    }
+
+    if (command === 'demote') {
+      await sock.groupParticipantsUpdate(sender, mentioned, 'demote');
+      await reply('✅ অ্যাডমিন পদ সরানোর অনুরোধ পাঠানো হয়েছে।');
+      return;
+    }
+  }
+
+  // COMMANDS THAT NEED MORE INTEGRATION
+
+  const extraCommands = [
+    'song', 'play', 'gan', 'spotify', 'fb', 'insta',
+    'tiktok', 'ytmp4', 'pinterest', 'video', 'gpt',
+    'apk', 'spam', 'sudo', 'sticker', 'image'
+  ];
+
+  if (extraCommands.includes(command)) {
+    await reply(
+      `⚠️ .${command} কমান্ডটি তালিকায় আছে, কিন্তু এটি চালানোর জন্য অতিরিক্ত ফিচার/API সেটআপ প্রয়োজন।`
+    );
+    return;
+  }
+}
+
+// ==============================
+// START WHATSAPP BOT
+// ==============================
+
 async function startBot() {
-  if (starting) return;
-  starting = true;
+  if (reconnecting) return;
+  reconnecting = true;
 
   try {
     const { state, saveCreds } =
@@ -124,226 +281,108 @@ async function startBot() {
     sock = makeWASocket({
       auth: state,
       logger,
+      printQRInTerminal: false,
       browser: ['Ubuntu', 'Chrome', '120.0.0'],
       markOnlineOnConnect: false,
       syncFullHistory: false
     });
 
-    const currentSock = sock;
+    sock.ev.on('creds.update', saveCreds);
 
-    currentSock.ev.on('creds.update', saveCreds);
+    sock.ev.on('connection.update', async (update) => {
+      const { connection, lastDisconnect } = update;
 
-    // Only one connection handler.
-    currentSock.ev.on(
-      'connection.update',
-      async (update) => {
-        const { connection, lastDisconnect, qr } = update;
+      if (connection === 'connecting') {
+        console.log('Connecting to WhatsApp...');
+      }
 
-        // Request a pairing code for an unregistered session.
-        if (
-          !state.creds.registered &&
-          PHONE_NUMBER &&
-          !pairingRequested &&
-          (qr || connection === 'connecting')
-        ) {
-          pairingRequested = true;
+      if (connection === 'open') {
+        console.log('✅ WhatsApp connected successfully!');
+      }
 
-          try {
-            // Allow the socket to initialise first.
-            await new Promise(resolve =>
-              setTimeout(resolve, 3000)
-            );
+      if (connection === 'close') {
+        const statusCode =
+          lastDisconnect?.error?.output?.statusCode;
 
-            if (
-              currentSock !== sock ||
-              state.creds.registered
-            ) {
-              return;
-            }
+        console.log('WhatsApp disconnected. Status:', statusCode);
 
-            const code =
-              await currentSock.requestPairingCode(
-                PHONE_NUMBER
-              );
-
-            console.log('WhatsApp Pairing Code:', code);
-            console.log(
-              'WhatsApp → Linked devices → Link with phone number'
-            );
-          } catch (err) {
-            pairingRequested = false;
-            console.error(
-              'Pairing code error:',
-              err.message
-            );
-          }
-        }
-
-        if (connection === 'open') {
-          console.log('WhatsApp connected successfully');
-          pairingRequested = false;
-        }
-
-        if (connection === 'close') {
-          const status =
-            lastDisconnect?.error?.output?.statusCode;
-
-          console.error(
-            'WhatsApp disconnected:',
-            status,
-            lastDisconnect?.error?.message || ''
-          );
-
-          if (currentSock !== sock) return;
-
-          if (status === DisconnectReason.loggedOut) {
-            console.error(
-              'WhatsApp logged out. Re-link the device.'
-            );
-            starting = false;
-            return;
-          }
-
-          if (reconnecting) return;
-
-          reconnecting = true;
-          starting = false;
-
+        if (statusCode !== DisconnectReason.loggedOut) {
+          console.log('Reconnecting in 5 seconds...');
           setTimeout(() => {
             reconnecting = false;
-            pairingRequested = false;
-
-            startBot().catch(err => {
-              console.error(
-                'Restart error:',
-                err.message
-              );
-            });
+            startBot();
           }, 5000);
+        } else {
+          console.log(
+            'WhatsApp logged out. Re-pairing may be required.'
+          );
+          reconnecting = false;
         }
       }
-    );
+    });
 
-    currentSock.ev.on(
-      'messages.upsert',
-      async ({ messages, type }) => {
-        if (type !== 'notify') return;
+    // Pairing code for a new WhatsApp connection
+    if (!state.creds.registered) {
+      if (!PHONE_NUMBER) {
+        console.log(
+          'Set PHONE_NUMBER in Render Environment Variables.'
+        );
+      } else {
+        try {
+          await new Promise(resolve => setTimeout(resolve, 3000));
 
-        for (const msg of messages) {
-          if (!msg.message || msg.key.fromMe) continue;
-
-          const jid = msg.key.remoteJid;
-
-          if (
-            !jid ||
-            jid === 'status@broadcast' ||
-            (
-              !jid.endsWith('@g.us') &&
-              !jid.endsWith('@s.whatsapp.net') &&
-              !jid.endsWith('@lid')
-            )
-          ) {
-            continue;
-          }
-
-          const body = getText(msg);
-          if (!body.startsWith(PREFIX)) continue;
-
-          const args = body
-            .slice(PREFIX.length)
-            .trim()
-            .split(/\s+/);
-
-          const command = (args.shift() || '')
-            .toLowerCase();
-
-          try {
-            switch (command) {
-              case 'menu':
-              case 'help': {
-                const caption = makeMenu();
-
-                if (MENU_IMAGE) {
-                  await currentSock.sendMessage(jid, {
-                    image: { url: MENU_IMAGE },
-                    caption
-                  });
-                } else {
-                  await currentSock.sendMessage(jid, {
-                    text: caption
-                  });
-                }
-                break;
-              }
-
-              case 'ping':
-                await currentSock.sendMessage(jid, {
-                  text: '🏓 Pong!'
-                });
-                break;
-
-              case 'alive':
-                await currentSock.sendMessage(jid, {
-                  text: '✅ COOL-BOY-XMD is running!'
-                });
-                break;
-
-              case 'owner':
-                await currentSock.sendMessage(jid, {
-                  text: OWNER_NUMBER
-                    ? `👑 Owner: ${OWNER_NUMBER}`
-                    : 'Owner number is not configured.'
-                });
-                break;
-
-              case 'uptime':
-                await currentSock.sendMessage(jid, {
-                  text: `⏱️ Uptime: ${getUptime()}`
-                });
-                break;
-
-              case 'github':
-                await currentSock.sendMessage(jid, {
-                  text:
-                    'GitHub: https://github.com/gk8715440-gif/Cool-boy-xmd'
-                });
-                break;
-
-              default:
-                await currentSock.sendMessage(jid, {
-                  text:
-                    `❌ Unknown command: ${PREFIX}${command}\n` +
-                    `Type ${PREFIX}menu to see commands.`
-                });
-            }
-          } catch (err) {
-            console.error(
-              'Command error:',
-              err.message
-            );
-          }
+          const code = await sock.requestPairingCode(PHONE_NUMBER);
+          console.log('WhatsApp Pairing Code:', code);
+          console.log('Enter this code in WhatsApp Linked Devices.');
+        } catch (error) {
+          console.error('Pairing code error:', error.message);
         }
       }
-    );
-  } catch (err) {
-    console.error('Bot startup error:', err.message);
-    starting = false;
+    }
+
+    // Incoming messages
+    sock.ev.on('messages.upsert', async ({ messages, type }) => {
+      if (type !== 'notify') return;
+
+      for (const message of messages) {
+        try {
+          if (!message.message || message.key.fromMe) continue;
+
+          const sender = message.key.remoteJid;
+          if (!sender || sender === 'status@broadcast') continue;
+
+          const text = getText(message.message);
+          if (!text) continue;
+
+          await processCommand(sender, text, message);
+        } catch (error) {
+          console.error('Message handler error:', error.message);
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Bot startup error:', error);
+    setTimeout(() => {
+      reconnecting = false;
+      startBot();
+    }, 10000);
+    return;
   }
+
+  reconnecting = false;
 }
 
-if (!PHONE_NUMBER) {
-  console.error(
-    'Set PHONE_NUMBER in Render Environment with country code.'
-  );
-} else {
-  startBot().catch(err => {
-    starting = false;
-    console.error('Bot startup error:', err.message);
-  });
-}
+// ==============================
+// SHUTDOWN
+// ==============================
 
-process.on('SIGTERM', () => {
-  console.log('Server shutting down.');
-  server.close();
-  sock?.end(new Error('Server shutting down'));
+process.on('SIGTERM', async () => {
+  console.log('Shutting down bot...');
+  try {
+    if (sock) sock.end(undefined);
+  } catch {}
+  process.exit(0);
 });
+
+startBot();
