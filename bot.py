@@ -194,3 +194,4 @@ def process_command(sender, message_text):
     message_text = message_text.strip()
 
     if not message_text.startswith(PREFIX):
+        return
