@@ -6,12 +6,19 @@ import makeWASocket, {
 
 import pino from 'pino';
 import express from 'express';
+import fs from 'node:fs/promises';
 
 const app = express();
 const PORT = process.env.PORT || 10000;
+const AUTH_DIR = './auth_info_baileys';
 
-const PHONE_NUMBER = (process.env.PHONE_NUMBER || '').replace(/\D/g, '');
-const OWNER_NUMBER = (process.env.OWNER_NUMBER || PHONE_NUMBER).replace(/\D/g, '');
+const PHONE_NUMBER = (process.env.PHONE_NUMBER || '')
+  .replace(/\D/g, '');
+
+const OWNER_NUMBER = (
+  process.env.OWNER_NUMBER || PHONE_NUMBER
+).replace(/\D/g, '');
+
 const BOT_NAME = process.env.BOT_NAME || 'Cool-boy-xmd';
 const PREFIX = process.env.PREFIX || '.';
 
@@ -20,9 +27,13 @@ const MENU_IMAGE =
   'https://raw.githubusercontent.com/gk8715440-gif/Cool-boy-xmd/main/file_00000000befc7209aec871aa090da284.png';
 
 const logger = pino({ level: 'silent' });
+
 let sock;
-let starting = false;
 let startedAt = Date.now();
+let starting = false;
+let reconnectTimer;
+let pairingRequested = false;
+let resettingSession = false;
 
 const settings = {
   mode: 'public',
@@ -61,9 +72,6 @@ const menuText = `
 ┃ .close
 ┃ .setname
 ┃ .setdesc
-┃ .antilink on/off
-┃ .welcome on/off
-┃ .goodbye on/off
 ┃ .delete
 ┃
 ┃ ⚙️ SETTINGS
@@ -71,6 +79,9 @@ const menuText = `
 ┃ .mode public/private
 ┃ .prefix
 ┃ .botname
+┃ .welcome on/off
+┃ .goodbye on/off
+┃ .antilink on/off
 ┃ .autoread on/off
 ┃ .autotyping on/off
 ┃ .autoreact on/off
@@ -97,7 +108,6 @@ function getText(message) {
     m.extendedTextMessage?.text ||
     m.imageMessage?.caption ||
     m.videoMessage?.caption ||
-    m.documentMessage?.caption ||
     ''
   ).trim();
 }
@@ -112,28 +122,41 @@ function uptime() {
   const hours = Math.floor((seconds % 86400) / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   const secs = seconds % 60;
+
   return `${days}d ${hours}h ${minutes}m ${secs}s`;
 }
 
 async function sendText(jid, text, quoted) {
-  return sock.sendMessage(jid, { text }, quoted ? { quoted } : {});
+  return sock.sendMessage(
+    jid,
+    { text },
+    quoted ? { quoted } : {}
+  );
 }
 
-async function isOwner(sender) {
+function isOwner(sender) {
   return numberOf(sender) === OWNER_NUMBER;
 }
 
 async function groupAdmin(jid, sender) {
   if (!jid.endsWith('@g.us')) return false;
+
   const metadata = await sock.groupMetadata(jid);
-  const participant = metadata.participants.find(p => p.id === sender);
+  const participant = metadata.participants.find(
+    p => p.id === sender
+  );
+
   return Boolean(participant?.admin);
 }
 
 async function botAdmin(jid) {
   if (!jid.endsWith('@g.us')) return false;
+
   const metadata = await sock.groupMetadata(jid);
-  const bot = metadata.participants.find(p => p.id === sock.user?.id);
+  const bot = metadata.participants.find(
+    p => numberOf(p.id) === numberOf(sock.user?.id || '')
+  );
+
   return Boolean(bot?.admin);
 }
 
@@ -150,17 +173,24 @@ async function processCommand(message) {
   const isGroup = jid.endsWith('@g.us');
 
   try {
-    if (settings.mode === 'private' && !(await isOwner(sender))) return;
+    if (
+      settings.mode === 'private' &&
+      !isOwner(sender)
+    ) return;
 
     switch (command) {
       case 'menu':
       case 'help':
       case 'gmenu':
       case 'funmenu':
-        await sock.sendMessage(jid, {
-          image: { url: MENU_IMAGE },
-          caption: menuText
-        }, { quoted: message });
+        await sock.sendMessage(
+          jid,
+          {
+            image: { url: MENU_IMAGE },
+            caption: menuText
+          },
+          { quoted: message }
+        );
         break;
 
       case 'ping':
@@ -168,7 +198,11 @@ async function processCommand(message) {
         break;
 
       case 'alive':
-        await sendText(jid, `✅ ${BOT_NAME} is running!\nUptime: ${uptime()}`, message);
+        await sendText(
+          jid,
+          `✅ ${BOT_NAME} is running!\nUptime: ${uptime()}`,
+          message
+        );
         break;
 
       case 'uptime':
@@ -176,19 +210,35 @@ async function processCommand(message) {
         break;
 
       case 'owner':
-        await sendText(jid, `👑 Owner: ${OWNER_NUMBER || 'Not configured'}`, message);
+        await sendText(
+          jid,
+          `👑 Owner: ${OWNER_NUMBER || 'Not configured'}`,
+          message
+        );
         break;
 
       case 'github':
-        await sendText(jid, 'https://github.com/gk8715440-gif/Cool-boy-xmd', message);
+        await sendText(
+          jid,
+          'https://github.com/gk8715440-gif/Cool-boy-xmd',
+          message
+        );
         break;
 
       case 'jid':
-        await sendText(jid, `Chat: ${jid}\nSender: ${sender}`, message);
+        await sendText(
+          jid,
+          `Chat: ${jid}\nSender: ${sender}`,
+          message
+        );
         break;
 
       case 'info':
-        await sendText(jid, `Bot: ${BOT_NAME}\nPrefix: ${PREFIX}\nMode: ${settings.mode}`, message);
+        await sendText(
+          jid,
+          `Bot: ${BOT_NAME}\nPrefix: ${PREFIX}\nMode: ${settings.mode}`,
+          message
+        );
         break;
 
       case 'prefix':
@@ -200,17 +250,32 @@ async function processCommand(message) {
         break;
 
       case 'settings':
-        await sendText(jid, JSON.stringify(settings, null, 2), message);
+        await sendText(
+          jid,
+          JSON.stringify(settings, null, 2),
+          message
+        );
         break;
 
       case 'mode': {
-        if (!(await isOwner(sender))) {
-          return sendText(jid, '❌ শুধু Owner এই সেটিং বদলাতে পারবেন।', message);
+        if (!isOwner(sender)) {
+          await sendText(
+            jid,
+            '❌ শুধু Owner এই সেটিং বদলাতে পারবেন।',
+            message
+          );
+          break;
         }
 
         const mode = input.toLowerCase();
+
         if (!['public', 'private'].includes(mode)) {
-          return sendText(jid, 'ব্যবহার: .mode public অথবা .mode private', message);
+          await sendText(
+            jid,
+            'ব্যবহার: .mode public অথবা .mode private',
+            message
+          );
+          break;
         }
 
         settings.mode = mode;
@@ -225,25 +290,47 @@ async function processCommand(message) {
       case 'welcome':
       case 'goodbye':
       case 'antilink': {
-        if (!(await isOwner(sender)) &&
-            !(isGroup && await groupAdmin(jid, sender))) {
-          return sendText(jid, '❌ Owner অথবা Group Admin হতে হবে।', message);
+        if (
+          !isOwner(sender) &&
+          !(isGroup && await groupAdmin(jid, sender))
+        ) {
+          await sendText(
+            jid,
+            '❌ Owner অথবা Group Admin হতে হবে।',
+            message
+          );
+          break;
         }
 
         const value = input.toLowerCase();
+
         if (!['on', 'off'].includes(value)) {
-          return sendText(jid, `ব্যবহার: .${command} on/off`, message);
+          await sendText(
+            jid,
+            `ব্যবহার: ${PREFIX}${command} on/off`,
+            message
+          );
+          break;
         }
 
         settings[command] = value === 'on';
-        await sendText(jid, `✅ ${command}: ${value}`, message);
+
+        await sendText(
+          jid,
+          `✅ ${command}: ${value}`,
+          message
+        );
         break;
       }
 
       case 'groupinfo': {
-        if (!isGroup) return sendText(jid, '❌ গ্রুপে ব্যবহার করুন।', message);
+        if (!isGroup) {
+          await sendText(jid, '❌ গ্রুপে ব্যবহার করুন।', message);
+          break;
+        }
 
         const metadata = await sock.groupMetadata(jid);
+
         await sendText(
           jid,
           `👥 Group: ${metadata.subject}\nMembers: ${metadata.participants.length}\nDescription: ${metadata.desc || 'None'}`,
@@ -253,71 +340,124 @@ async function processCommand(message) {
       }
 
       case 'admins': {
-        if (!isGroup) return sendText(jid, '❌ গ্রুপে ব্যবহার করুন।', message);
+        if (!isGroup) {
+          await sendText(jid, '❌ গ্রুপে ব্যবহার করুন।', message);
+          break;
+        }
 
         const metadata = await sock.groupMetadata(jid);
         const admins = metadata.participants.filter(p => p.admin);
 
-        await sock.sendMessage(jid, {
-          text: '👑 Group Admins:\n' + admins.map(p => `@${numberOf(p.id)}`).join('\n'),
-          mentions: admins.map(p => p.id)
-        }, { quoted: message });
+        await sock.sendMessage(
+          jid,
+          {
+            text: '👑 Group Admins:\n' +
+              admins.map(p => `@${numberOf(p.id)}`).join('\n'),
+            mentions: admins.map(p => p.id)
+          },
+          { quoted: message }
+        );
         break;
       }
 
       case 'tag':
       case 'tagall': {
-        if (!isGroup) return sendText(jid, '❌ গ্রুপে ব্যবহার করুন।', message);
-        if (!(await groupAdmin(jid, sender)) && !(await isOwner(sender))) {
-          return sendText(jid, '❌ Admin অনুমতি প্রয়োজন।', message);
+        if (!isGroup) {
+          await sendText(jid, '❌ গ্রুপে ব্যবহার করুন।', message);
+          break;
+        }
+
+        if (
+          !isOwner(sender) &&
+          !(await groupAdmin(jid, sender))
+        ) {
+          await sendText(jid, '❌ Admin অনুমতি প্রয়োজন।', message);
+          break;
         }
 
         const metadata = await sock.groupMetadata(jid);
         const members = metadata.participants;
 
-        await sock.sendMessage(jid, {
-          text: `${input || '📢 Attention everyone!'}\n\n` +
-            members.map(p => `@${numberOf(p.id)}`).join(' '),
-          mentions: members.map(p => p.id)
-        }, { quoted: message });
+        await sock.sendMessage(
+          jid,
+          {
+            text: `${input || '📢 Attention everyone!'}\n\n` +
+              members.map(p => `@${numberOf(p.id)}`).join(' '),
+            mentions: members.map(p => p.id)
+          },
+          { quoted: message }
+        );
         break;
       }
 
       case 'kick':
       case 'promote':
       case 'demote': {
-        if (!isGroup) return sendText(jid, '❌ গ্রুপে ব্যবহার করুন।', message);
-        if (!(await groupAdmin(jid, sender)) && !(await isOwner(sender))) {
-          return sendText(jid, '❌ Admin অনুমতি প্রয়োজন।', message);
-        }
-        if (!(await botAdmin(jid))) {
-          return sendText(jid, '❌ Bot-কে Group Admin করুন।', message);
+        if (!isGroup) {
+          await sendText(jid, '❌ গ্রুপে ব্যবহার করুন।', message);
+          break;
         }
 
-        const context = message.message?.extendedTextMessage?.contextInfo;
+        if (
+          !isOwner(sender) &&
+          !(await groupAdmin(jid, sender))
+        ) {
+          await sendText(jid, '❌ Admin অনুমতি প্রয়োজন।', message);
+          break;
+        }
+
+        if (!(await botAdmin(jid))) {
+          await sendText(jid, '❌ Bot-কে Group Admin করুন।', message);
+          break;
+        }
+
+        const context =
+          message.message?.extendedTextMessage?.contextInfo;
+
         const targets = [
           ...(context?.mentionedJid || []),
           ...(context?.participant ? [context.participant] : [])
         ];
 
         if (!targets.length) {
-          return sendText(jid, 'সদস্যকে মেনশন করুন অথবা তার মেসেজে Reply দিন।', message);
+          await sendText(
+            jid,
+            'সদস্যকে মেনশন করুন অথবা তার মেসেজে Reply দিন।',
+            message
+          );
+          break;
         }
 
         const action = command === 'kick' ? 'remove' : command;
-        await sock.groupParticipantsUpdate(jid, [...new Set(targets)], action);
+
+        await sock.groupParticipantsUpdate(
+          jid,
+          [...new Set(targets)],
+          action
+        );
+
         await sendText(jid, `✅ ${command} সম্পন্ন হয়েছে।`, message);
         break;
       }
 
       case 'open':
       case 'close': {
-        if (!isGroup) return sendText(jid, '❌ গ্রুপে ব্যবহার করুন।', message);
-        if (!(await groupAdmin(jid, sender)) && !(await isOwner(sender))) {
-          return sendText(jid, '❌ Admin অনুমতি প্রয়োজন।', message);
+        if (!isGroup) {
+          await sendText(jid, '❌ গ্রুপে ব্যবহার করুন।', message);
+          break;
         }
+
+        if (
+          !isOwner(sender) &&
+          !(await groupAdmin(jid, sender))
+        ) {
+          await sendText(jid, '❌ Admin অনুমতি প্রয়োজন।', message);
+          break;
+        }
+
         if (!(await botAdmin(jid))) {
-          return sendText(jid, '❌ Bot-কে Group Admin করুন।', message);
+          await sendText(jid, '❌ Bot-কে Group Admin করুন।', message);
+          break;
         }
 
         await sock.groupSettingUpdate(
@@ -325,51 +465,80 @@ async function processCommand(message) {
           command === 'open' ? 'not_announcement' : 'announcement'
         );
 
-        await sendText(jid, command === 'open'
-          ? '✅ গ্রুপ সবার জন্য খোলা হয়েছে।'
-          : '🔒 এখন শুধু Admin মেসেজ করতে পারবেন।', message);
+        await sendText(
+          jid,
+          command === 'open'
+            ? '✅ গ্রুপ সবার জন্য খোলা হয়েছে।'
+            : '🔒 এখন শুধু Admin মেসেজ করতে পারবেন।',
+          message
+        );
         break;
       }
 
-      case 'setname': {
-        if (!isGroup || !input) {
-          return sendText(jid, 'ব্যবহার: .setname নতুন নাম', message);
-        }
-        if (!(await groupAdmin(jid, sender)) && !(await isOwner(sender))) {
-          return sendText(jid, '❌ Admin অনুমতি প্রয়োজন।', message);
-        }
-        if (!(await botAdmin(jid))) return sendText(jid, '❌ Bot-কে Admin করুন।', message);
-
-        await sock.groupUpdateSubject(jid, input);
-        await sendText(jid, '✅ গ্রুপের নাম পরিবর্তন হয়েছে।', message);
-        break;
-      }
-
+      case 'setname':
       case 'setdesc': {
         if (!isGroup || !input) {
-          return sendText(jid, 'ব্যবহার: .setdesc নতুন বিবরণ', message);
+          await sendText(
+            jid,
+            `ব্যবহার: ${PREFIX}${command} নতুন লেখা`,
+            message
+          );
+          break;
         }
-        if (!(await groupAdmin(jid, sender)) && !(await isOwner(sender))) {
-          return sendText(jid, '❌ Admin অনুমতি প্রয়োজন।', message);
-        }
-        if (!(await botAdmin(jid))) return sendText(jid, '❌ Bot-কে Admin করুন।', message);
 
-        await sock.groupUpdateDescription(jid, input);
-        await sendText(jid, '✅ গ্রুপের বিবরণ পরিবর্তন হয়েছে।', message);
+        if (
+          !isOwner(sender) &&
+          !(await groupAdmin(jid, sender))
+        ) {
+          await sendText(jid, '❌ Admin অনুমতি প্রয়োজন।', message);
+          break;
+        }
+
+        if (!(await botAdmin(jid))) {
+          await sendText(jid, '❌ Bot-কে Admin করুন।', message);
+          break;
+        }
+
+        if (command === 'setname') {
+          await sock.groupUpdateSubject(jid, input);
+        } else {
+          await sock.groupUpdateDescription(jid, input);
+        }
+
+        await sendText(jid, '✅ পরিবর্তন সম্পন্ন হয়েছে।', message);
         break;
       }
 
       case 'delete':
       case 'del': {
-        if (!isGroup) return sendText(jid, '❌ গ্রুপে ব্যবহার করুন।', message);
-        if (!(await groupAdmin(jid, sender)) && !(await isOwner(sender))) {
-          return sendText(jid, '❌ Admin অনুমতি প্রয়োজন।', message);
+        if (!isGroup) {
+          await sendText(jid, '❌ গ্রুপে ব্যবহার করুন।', message);
+          break;
         }
-        if (!(await botAdmin(jid))) return sendText(jid, '❌ Bot-কে Admin করুন।', message);
 
-        const context = message.message?.extendedTextMessage?.contextInfo;
+        if (
+          !isOwner(sender) &&
+          !(await groupAdmin(jid, sender))
+        ) {
+          await sendText(jid, '❌ Admin অনুমতি প্রয়োজন।', message);
+          break;
+        }
+
+        if (!(await botAdmin(jid))) {
+          await sendText(jid, '❌ Bot-কে Admin করুন।', message);
+          break;
+        }
+
+        const context =
+          message.message?.extendedTextMessage?.contextInfo;
+
         if (!context?.stanzaId || !context?.participant) {
-          return sendText(jid, 'যে মেসেজ মুছবেন সেটিতে Reply দিয়ে .delete লিখুন।', message);
+          await sendText(
+            jid,
+            'যে মেসেজ মুছবেন সেটিতে Reply দিয়ে .delete লিখুন।',
+            message
+          );
+          break;
         }
 
         await sock.sendMessage(jid, {
@@ -390,16 +559,31 @@ async function processCommand(message) {
       case 'insta':
       case 'sticker':
       case 'toimg':
-        await sendText(jid, `⚠️ .${command} কমান্ড আছে, কিন্তু এর মিডিয়া ফিচার এখনো যুক্ত করা হয়নি।`, message);
+        await sendText(
+          jid,
+          `⚠️ .${command} কমান্ড আছে, কিন্তু মিডিয়া ফিচার এখনো যুক্ত করা হয়নি।`,
+          message
+        );
         break;
 
       default:
-        await sendText(jid, `❓ অজানা কমান্ড: ${PREFIX}${command}\n${PREFIX}menu লিখুন।`, message);
+        await sendText(
+          jid,
+          `❓ অজানা কমান্ড: ${PREFIX}${command}\n${PREFIX}menu লিখুন।`,
+          message
+        );
     }
   } catch (error) {
-    console.error(`Command ${command} error:`, error?.message || error);
-    await sendText(jid, '❌ কমান্ড চালাতে সমস্যা হয়েছে। Render Logs পরীক্ষা করুন।', message)
-      .catch(() => {});
+    console.error(
+      `Command ${command} error:`,
+      error?.message || error
+    );
+
+    await sendText(
+      jid,
+      '❌ কমান্ড চালাতে সমস্যা হয়েছে। Render Logs পরীক্ষা করুন।',
+      message
+    ).catch(() => {});
   }
 }
 
@@ -422,12 +606,15 @@ app.listen(PORT, '0.0.0.0', () => {
 async function startBot() {
   if (starting) return;
   starting = true;
+  pairingRequested = false;
 
   try {
     const { state, saveCreds } =
-      await useMultiFileAuthState('./auth_info_baileys');
+      await useMultiFileAuthState(AUTH_DIR);
 
     const { version } = await fetchLatestBaileysVersion();
+
+    console.log('Baileys protocol version:', version.join('.'));
 
     sock = makeWASocket({
       version,
@@ -435,7 +622,9 @@ async function startBot() {
       logger,
       printQRInTerminal: false,
       markOnlineOnConnect: false,
-      syncFullHistory: false
+      syncFullHistory: false,
+      connectTimeoutMs: 60000,
+      defaultQueryTimeoutMs: 60000
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -446,23 +635,53 @@ async function startBot() {
       if (connection === 'open') {
         console.log('✅ WhatsApp connected successfully.');
         console.log(`Logged in as ${sock.user?.id || 'unknown'}`);
+        return;
       }
 
-      if (connection === 'close') {
-        const code = lastDisconnect?.error?.output?.statusCode;
-        console.error('WhatsApp disconnected:', code || 'unknown');
+      if (connection !== 'close') return;
 
-        if (code === DisconnectReason.loggedOut) {
-          console.error('Session logged out. Link the device again.');
-          starting = false;
-          return;
+      const code =
+        lastDisconnect?.error?.output?.statusCode;
+
+      console.error('WhatsApp disconnected:', code || 'unknown');
+
+      starting = false;
+
+      if (code === DisconnectReason.loggedOut) {
+        console.error(
+          '❌ Session logged out. Old credentials cannot be reused.'
+        );
+
+        if (resettingSession) return;
+        resettingSession = true;
+
+        try {
+          // Remove the invalid local session so a new
+          // pairing code can be generated.
+          await fs.rm(AUTH_DIR, {
+            recursive: true,
+            force: true
+          });
+
+          console.log('Old local session cleared. Restarting login...');
+        } catch (error) {
+          console.error('Session reset error:', error?.message || error);
         }
 
         setTimeout(() => {
-          starting = false;
+          resettingSession = false;
           startBot().catch(console.error);
-        }, 5000);
+        }, 3000);
+
+        return;
       }
+
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        startBot().catch(console.error);
+      }, 5000);
     });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
@@ -487,26 +706,40 @@ async function startBot() {
     });
 
     if (PHONE_NUMBER && !state.creds.registered) {
-      setTimeout(async () => {
-        try {
-          if (sock?.user) return;
-          const code = await sock.requestPairingCode(PHONE_NUMBER);
-          console.log('📱 WhatsApp Pairing Code:', code);
-        } catch (error) {
-          console.error('Pairing code error:', error?.message || error);
-        }
-      }, 3000);
+      if (!pairingRequested) {
+        pairingRequested = true;
+
+        setTimeout(async () => {
+          try {
+            if (sock?.user) return;
+
+            const code = await sock.requestPairingCode(PHONE_NUMBER);
+            console.log('📱 WhatsApp Pairing Code:', code);
+          } catch (error) {
+            console.error(
+              'Pairing code error:',
+              error?.message || error
+            );
+          }
+        }, 3000);
+      }
     } else if (!PHONE_NUMBER && !state.creds.registered) {
       console.error('❌ Render Environment-এ PHONE_NUMBER সেট করুন।');
     }
   } catch (error) {
     console.error('Bot startup error:', error?.message || error);
     starting = false;
-    setTimeout(startBot, 10000);
+
+    setTimeout(() => {
+      startBot().catch(console.error);
+    }, 10000);
   }
 }
 
-process.on('SIGTERM', () => process.exit(0));
+process.on('SIGTERM', () => {
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  process.exit(0);
+});
 
 startBot().catch(error => {
   console.error('Fatal startup error:', error);
