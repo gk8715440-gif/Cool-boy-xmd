@@ -1,3 +1,4 @@
+
 import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
@@ -9,7 +10,7 @@ import pino from 'pino';
 import express from 'express';
 
 const app = express();
-const PORT = process.env.PORT || 10000;
+const PORT = Number(process.env.PORT) || 10000;
 const AUTH_DIR = './auth_info_baileys';
 
 const PHONE_NUMBER = (process.env.PHONE_NUMBER || '').replace(/\D/g, '');
@@ -24,10 +25,10 @@ const MENU_IMAGE =
 const logger = pino({ level: 'silent' });
 
 let sock;
-let reconnectTimer;
+let reconnectTimer = null;
 let pairingRequested = false;
-let startedAt = Date.now();
 let starting = false;
+let startedAt = Date.now();
 
 const settings = {
   mode: 'public',
@@ -119,21 +120,28 @@ function isOwner(sender) {
 }
 
 async function sendText(jid, text, quoted) {
-  return sock.sendMessage(jid, { text }, quoted ? { quoted } : {});
+  return sock.sendMessage(
+    jid,
+    { text },
+    quoted ? { quoted } : {}
+  );
 }
 
 async function groupAdmin(jid, sender) {
   if (!jid.endsWith('@g.us')) return false;
+
   const metadata = await sock.groupMetadata(jid);
   const participant = metadata.participants.find(
     p => numberOf(p.id) === numberOf(sender)
   );
+
   return Boolean(participant?.admin);
 }
 
 async function botAdmin(jid) {
   const metadata = await sock.groupMetadata(jid);
   const botNumber = numberOf(sock.user?.id || '');
+
   return metadata.participants.some(
     p => numberOf(p.id) === botNumber && p.admin
   );
@@ -158,24 +166,33 @@ async function processCommand(message) {
       case 'menu':
       case 'help':
       case 'gmenu':
-      case 'funmenu':
+      case 'funmenu': {
         try {
           await sock.sendMessage(
             jid,
-            { image: { url: MENU_IMAGE }, caption: menuText },
+            {
+              image: { url: MENU_IMAGE },
+              caption: menuText
+            },
             { quoted: message }
           );
-        } catch {
+        } catch (error) {
+          console.error('Menu image error:', error?.message || error);
           await sendText(jid, menuText, message);
         }
         break;
+      }
 
       case 'ping':
         await sendText(jid, '🏓 Pong! Bot is online.', message);
         break;
 
       case 'alive':
-        await sendText(jid, `✅ ${BOT_NAME} is running!\nUptime: ${uptime()}`, message);
+        await sendText(
+          jid,
+          `✅ ${BOT_NAME} is running!\nUptime: ${uptime()}`,
+          message
+        );
         break;
 
       case 'uptime':
@@ -183,11 +200,19 @@ async function processCommand(message) {
         break;
 
       case 'owner':
-        await sendText(jid, `👑 Owner: ${OWNER_NUMBER || 'Not configured'}`, message);
+        await sendText(
+          jid,
+          `👑 Owner: ${OWNER_NUMBER || 'Not configured'}`,
+          message
+        );
         break;
 
       case 'github':
-        await sendText(jid, 'https://github.com/gk8715440-gif/Cool-boy-xmd', message);
+        await sendText(
+          jid,
+          'https://github.com/gk8715440-gif/Cool-boy-xmd',
+          message
+        );
         break;
 
       case 'jid':
@@ -195,7 +220,11 @@ async function processCommand(message) {
         break;
 
       case 'info':
-        await sendText(jid, `Bot: ${BOT_NAME}\nPrefix: ${PREFIX}\nMode: ${settings.mode}`, message);
+        await sendText(
+          jid,
+          `Bot: ${BOT_NAME}\nPrefix: ${PREFIX}\nMode: ${settings.mode}`,
+          message
+        );
         break;
 
       case 'settings':
@@ -207,11 +236,14 @@ async function processCommand(message) {
           await sendText(jid, '❌ শুধু Owner এই সেটিং বদলাতে পারবেন।', message);
           break;
         }
+
         const mode = input.toLowerCase();
+
         if (!['public', 'private'].includes(mode)) {
           await sendText(jid, 'ব্যবহার: .mode public অথবা .mode private', message);
           break;
         }
+
         settings.mode = mode;
         await sendText(jid, `✅ Mode: ${mode}`, message);
         break;
@@ -228,11 +260,14 @@ async function processCommand(message) {
           await sendText(jid, '❌ Owner অথবা Group Admin হতে হবে।', message);
           break;
         }
+
         const value = input.toLowerCase();
+
         if (!['on', 'off'].includes(value)) {
           await sendText(jid, `ব্যবহার: ${PREFIX}${command} on/off`, message);
           break;
         }
+
         settings[command] = value === 'on';
         await sendText(jid, `✅ ${command}: ${value}`, message);
         break;
@@ -243,7 +278,9 @@ async function processCommand(message) {
           await sendText(jid, '❌ গ্রুপে ব্যবহার করুন।', message);
           break;
         }
+
         const metadata = await sock.groupMetadata(jid);
+
         await sendText(
           jid,
           `👥 Group: ${metadata.subject}\nMembers: ${metadata.participants.length}\nDescription: ${metadata.desc || 'None'}`,
@@ -257,12 +294,15 @@ async function processCommand(message) {
           await sendText(jid, '❌ গ্রুপে ব্যবহার করুন।', message);
           break;
         }
+
         const metadata = await sock.groupMetadata(jid);
         const admins = metadata.participants.filter(p => p.admin);
+
         await sock.sendMessage(
           jid,
           {
-            text: '👑 Group Admins:\n' + admins.map(p => `@${numberOf(p.id)}`).join('\n'),
+            text: '👑 Group Admins:\n' +
+              admins.map(p => `@${numberOf(p.id)}`).join('\n'),
             mentions: admins.map(p => p.id)
           },
           { quoted: message }
@@ -276,16 +316,20 @@ async function processCommand(message) {
           await sendText(jid, '❌ গ্রুপে ব্যবহার করুন।', message);
           break;
         }
+
         if (!isOwner(sender) && !(await groupAdmin(jid, sender))) {
           await sendText(jid, '❌ Admin অনুমতি প্রয়োজন।', message);
           break;
         }
+
         const metadata = await sock.groupMetadata(jid);
         const members = metadata.participants;
+
         await sock.sendMessage(
           jid,
           {
-            text: `${input || '📢 Attention everyone!'}\n\n${members.map(p => `@${numberOf(p.id)}`).join(' ')}`,
+            text: `${input || '📢 Attention everyone!'}\n\n` +
+              members.map(p => `@${numberOf(p.id)}`).join(' '),
             mentions: members.map(p => p.id)
           },
           { quoted: message }
@@ -300,10 +344,12 @@ async function processCommand(message) {
           await sendText(jid, '❌ গ্রুপে ব্যবহার করুন।', message);
           break;
         }
+
         if (!isOwner(sender) && !(await groupAdmin(jid, sender))) {
           await sendText(jid, '❌ Admin অনুমতি প্রয়োজন।', message);
           break;
         }
+
         if (!(await botAdmin(jid))) {
           await sendText(jid, '❌ Bot-কে Group Admin করুন।', message);
           break;
@@ -316,12 +362,22 @@ async function processCommand(message) {
         ];
 
         if (!targets.length) {
-          await sendText(jid, 'সদস্যকে মেনশন করুন অথবা তার মেসেজে Reply দিন।', message);
+          await sendText(
+            jid,
+            'সদস্যকে মেনশন করুন অথবা তার মেসেজে Reply দিন।',
+            message
+          );
           break;
         }
 
         const action = command === 'kick' ? 'remove' : command;
-        await sock.groupParticipantsUpdate(jid, [...new Set(targets)], action);
+
+        await sock.groupParticipantsUpdate(
+          jid,
+          [...new Set(targets)],
+          action
+        );
+
         await sendText(jid, `✅ ${command} সম্পন্ন হয়েছে।`, message);
         break;
       }
@@ -332,21 +388,27 @@ async function processCommand(message) {
           await sendText(jid, '❌ গ্রুপে ব্যবহার করুন।', message);
           break;
         }
+
         if (!isOwner(sender) && !(await groupAdmin(jid, sender))) {
           await sendText(jid, '❌ Admin অনুমতি প্রয়োজন।', message);
           break;
         }
+
         if (!(await botAdmin(jid))) {
           await sendText(jid, '❌ Bot-কে Group Admin করুন।', message);
           break;
         }
+
         await sock.groupSettingUpdate(
           jid,
           command === 'open' ? 'not_announcement' : 'announcement'
         );
+
         await sendText(
           jid,
-          command === 'open' ? '✅ গ্রুপ খোলা হয়েছে।' : '🔒 শুধু Admin মেসেজ করতে পারবেন।',
+          command === 'open'
+            ? '✅ গ্রুপ খোলা হয়েছে।'
+            : '🔒 শুধু Admin মেসেজ করতে পারবেন।',
           message
         );
         break;
@@ -358,19 +420,23 @@ async function processCommand(message) {
           await sendText(jid, `ব্যবহার: ${PREFIX}${command} নতুন লেখা`, message);
           break;
         }
+
         if (!isOwner(sender) && !(await groupAdmin(jid, sender))) {
           await sendText(jid, '❌ Admin অনুমতি প্রয়োজন।', message);
           break;
         }
+
         if (!(await botAdmin(jid))) {
           await sendText(jid, '❌ Bot-কে Admin করুন।', message);
           break;
         }
+
         if (command === 'setname') {
           await sock.groupUpdateSubject(jid, input);
         } else {
           await sock.groupUpdateDescription(jid, input);
         }
+
         await sendText(jid, '✅ পরিবর্তন সম্পন্ন হয়েছে।', message);
         break;
       }
@@ -381,20 +447,28 @@ async function processCommand(message) {
           await sendText(jid, '❌ গ্রুপে ব্যবহার করুন।', message);
           break;
         }
+
         if (!isOwner(sender) && !(await groupAdmin(jid, sender))) {
           await sendText(jid, '❌ Admin অনুমতি প্রয়োজন।', message);
           break;
         }
+
         if (!(await botAdmin(jid))) {
           await sendText(jid, '❌ Bot-কে Admin করুন।', message);
           break;
         }
 
         const context = message.message?.extendedTextMessage?.contextInfo;
+
         if (!context?.stanzaId || !context?.participant) {
-          await sendText(jid, 'যে মেসেজ মুছবেন সেটিতে Reply দিয়ে .delete লিখুন।', message);
+          await sendText(
+            jid,
+            'যে মেসেজ মুছবেন সেটিতে Reply দিয়ে .delete লিখুন।',
+            message
+          );
           break;
         }
+
         await sock.sendMessage(jid, {
           delete: {
             remoteJid: jid,
@@ -413,15 +487,31 @@ async function processCommand(message) {
       case 'insta':
       case 'sticker':
       case 'toimg':
-        await sendText(jid, `⚠️ .${command} ফিচার এখনো যুক্ত করা হয়নি।`, message);
+        await sendText(
+          jid,
+          `⚠️ .${command} ফিচার এখনো যুক্ত করা হয়নি।`,
+          message
+        );
         break;
 
       default:
-        await sendText(jid, `❓ অজানা কমান্ড: ${PREFIX}${command}\n.menu লিখুন।`, message);
+        await sendText(
+          jid,
+          `❓ অজানা কমান্ড: ${PREFIX}${command}\n.menu লিখুন।`,
+          message
+        );
     }
   } catch (error) {
-    console.error(`Command ${command} error:`, error?.message || error);
-    await sendText(jid, '❌ কমান্ড চালাতে সমস্যা হয়েছে। Render Logs পরীক্ষা করুন।', message).catch(() => {});
+    console.error(
+      `Command ${command} error:`,
+      error?.message || error
+    );
+
+    await sendText(
+      jid,
+      '❌ কমান্ড চালাতে সমস্যা হয়েছে। Render Logs পরীক্ষা করুন।',
+      message
+    ).catch(() => {});
   }
 }
 
@@ -430,7 +520,11 @@ app.get('/', (_req, res) => {
 });
 
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', connected: Boolean(sock?.user), uptime: uptime() });
+  res.json({
+    status: 'ok',
+    connected: Boolean(sock?.user),
+    uptime: uptime()
+  });
 });
 
 app.listen(PORT, '0.0.0.0', () => {
@@ -453,17 +547,44 @@ async function startBot() {
       auth: state,
       logger,
       browser: Browsers.ubuntu('Chrome'),
-      printQRInTerminal: false,
       markOnlineOnConnect: false,
       syncFullHistory: false,
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 60000
     });
 
-    sock.ev.on('creds.update', saveCreds);
+    sock.ev.on('creds.update', async () => {
+      try {
+        await saveCreds();
+      } catch (error) {
+        console.error('Save credentials error:', error?.message || error);
+      }
+    });
 
     sock.ev.on('connection.update', async update => {
-      const { connection, lastDisconnect } = update;
+      const { connection, lastDisconnect, qr } = update;
+
+      // Pairing code: request only after the socket emits its QR event.
+      if (
+        qr &&
+        !state.creds.registered &&
+        !pairingRequested &&
+        PHONE_NUMBER
+      ) {
+        pairingRequested = true;
+
+        try {
+          const code = await sock.requestPairingCode(PHONE_NUMBER);
+          console.log('📱 WhatsApp Pairing Code:', code);
+          console.log('Enter this code in WhatsApp > Linked devices.');
+        } catch (error) {
+          pairingRequested = false;
+          console.error(
+            'Pairing code error:',
+            error?.message || error
+          );
+        }
+      }
 
       if (connection === 'open') {
         console.log('✅ WhatsApp connected successfully.');
@@ -474,63 +595,68 @@ async function startBot() {
       if (connection !== 'close') return;
 
       const code = lastDisconnect?.error?.output?.statusCode;
+      const errorMessage = lastDisconnect?.error?.message || '';
+
       console.error('WhatsApp disconnected:', code || 'unknown');
+      if (errorMessage) console.error('Disconnect details:', errorMessage);
+
       starting = false;
 
       if (code === DisconnectReason.loggedOut) {
-        console.error('❌ WhatsApp logged out. Check the session before reconnecting.');
+        console.error(
+          '❌ WhatsApp logged out. A new login may be required.'
+        );
         return;
       }
 
+      // 515 / restartRequired may happen during a successful login.
       if (reconnectTimer) clearTimeout(reconnectTimer);
+
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
-        startBot().catch(console.error);
-      }, 5000);
+        startBot().catch(error => {
+          console.error('Reconnect error:', error?.message || error);
+        });
+      }, 3000);
     });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       if (type !== 'notify') return;
+
       for (const message of messages) {
         if (!message.message || message.key.fromMe) continue;
-        if (!message.key.remoteJid || message.key.remoteJid === 'status@broadcast') continue;
 
         const jid = message.key.remoteJid;
+
+        if (!jid || jid === 'status@broadcast') continue;
 
         if (settings.autoread) {
           await sock.readMessages([message.key]).catch(() => {});
         }
+
         if (settings.autotyping) {
           await sock.sendPresenceUpdate('composing', jid).catch(() => {});
         }
+
         await processCommand(message);
       }
     });
 
-    if (!state.creds.registered) {
-      if (!PHONE_NUMBER) {
-        console.error('❌ Render Environment-এ PHONE_NUMBER সেট করুন।');
-        return;
-      }
-
-      if (!pairingRequested) {
-        pairingRequested = true;
-        setTimeout(async () => {
-          try {
-            if (sock?.user) return;
-            const code = await sock.requestPairingCode(PHONE_NUMBER);
-            console.log('📱 WhatsApp Pairing Code:', code);
-          } catch (error) {
-            pairingRequested = false;
-            console.error('Pairing code error:', error?.message || error);
-          }
-        }, 3000);
-      }
+    if (!state.creds.registered && !PHONE_NUMBER) {
+      console.error(
+        '❌ Render Environment-এ PHONE_NUMBER সেট করুন। Country code-সহ শুধু digits দিন।'
+      );
     }
   } catch (error) {
     console.error('Bot startup error:', error?.message || error);
     starting = false;
-    setTimeout(() => startBot().catch(console.error), 10000);
+
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      startBot().catch(console.error);
+    }, 10000);
   }
 }
 
