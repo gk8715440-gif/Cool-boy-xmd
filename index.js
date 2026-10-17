@@ -1,12 +1,15 @@
-import makeWASocket, {
-  useMultiFileAuthState,
-  DisconnectReason,
-  Browsers
-} from '@whiskeysockets/baileys';
-
+import baileys from '@whiskeysockets/baileys';
 import pino from 'pino';
 import express from 'express';
 import fs from 'fs';
+
+const makeWASocket =
+  baileys.default || baileys.makeWASocket || baileys;
+
+const {
+  useMultiFileAuthState,
+  DisconnectReason
+} = baileys;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -17,25 +20,31 @@ const PHONE_NUMBER = (process.env.PHONE_NUMBER || '')
 const OWNER_NUMBER = (process.env.OWNER_NUMBER || '')
   .replace(/\D/g, '');
 
-const MENU_IMAGE =
-  process.env.MENU_IMAGE || '';
-
+const MENU_IMAGE = process.env.MENU_IMAGE || '';
 const PREFIX = '.';
 const START_TIME = Date.now();
-
-app.get('/', (req, res) => {
-  res.send('Cool-boy-xmd bot is running!');
-});
-
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
-});
 
 const logger = pino({ level: 'silent' });
 
 let sock;
 let pairingRequested = false;
 let reconnecting = false;
+let starting = false;
+
+app.get('/', (req, res) => {
+  res.send('COOL-BOY-XMD WhatsApp Bot is running!');
+});
+
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'running',
+    whatsapp: sock?.user ? 'connected' : 'disconnected'
+  });
+});
+
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on port ${PORT}`);
+});
 
 function getText(msg) {
   const m = msg.message;
@@ -46,6 +55,7 @@ function getText(msg) {
     m.extendedTextMessage?.text ||
     m.imageMessage?.caption ||
     m.videoMessage?.caption ||
+    m.documentMessage?.caption ||
     ''
   ).trim();
 }
@@ -93,160 +103,209 @@ function makeMenu() {
 ┃
 ╰━━━━━━━━━━━━━━━━━━╯
 
-⚠️ যেসব কমান্ডের হ্যান্ডলার যোগ করা হয়নি,
-সেগুলো এখনো কাজ করবে না।
-
-Powered by Cool-boy-xmd`;
+⚠️ কিছু কমান্ডের হ্যান্ডলার এখনো যোগ করা হয়নি।
+Powered by COOL-BOY-XMD`;
 }
 
 async function startBot() {
-  const { state, saveCreds } =
-    await useMultiFileAuthState('./auth_info_baileys');
+  if (starting) return;
+  starting = true;
 
-  sock = makeWASocket({
-    auth: state,
-    logger,
-    browser: ['Windows', 'Chrome', 'Chrome 114.0.5735.198'],
-    markOnlineOnConnect: false,
-    syncFullHistory: false
-  });
+  try {
+    const { state, saveCreds } =
+      await useMultiFileAuthState('./auth_info_baileys');
 
-  sock.ev.on('creds.update', saveCreds);
+    sock = makeWASocket({
+      auth: state,
+      logger,
+      browser: ['Windows', 'Chrome', '114.0.5735.198'],
+      markOnlineOnConnect: false,
+      syncFullHistory: false
+    });
 
-  sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect } = update;
+    sock.ev.on('creds.update', saveCreds);
 
-    if (
-      connection === 'connecting' &&
-      !state.creds.registered &&
-      PHONE_NUMBER &&
-      !pairingRequested
-    ) {
-      pairingRequested = true;
+    sock.ev.on('connection.update', async (update) => {
+      const { connection, lastDisconnect } = update;
 
-      try {
-        await new Promise(resolve => setTimeout(resolve, 1500));
+      if (
+        connection === 'connecting' &&
+        !state.creds.registered &&
+        PHONE_NUMBER &&
+        !pairingRequested
+      ) {
+        pairingRequested = true;
 
-        const code = await sock.requestPairingCode(
-          PHONE_NUMBER
-        );
+        try {
+          await new Promise(resolve =>
+            setTimeout(resolve, 2000)
+          );
 
-        console.log('WhatsApp Pairing Code:', code);
-        console.log(
-          'WhatsApp > Linked devices > Link a device > Link with phone number'
-        );
-      } catch (err) {
-        pairingRequested = false;
-        console.error('Pairing code error:', err.message);
+          const code =
+            await sock.requestPairingCode(PHONE_NUMBER);
+
+          console.log('WhatsApp Pairing Code:', code);
+          console.log(
+            'WhatsApp → Linked devices → Link with phone number'
+          );
+        } catch (err) {
+          pairingRequested = false;
+          console.error(
+            'Pairing code error:',
+            err.message
+          );
+        }
       }
-    }
 
-    if (connection === 'open') {
-      console.log('✅ WhatsApp connected successfully');
-    }
+      if (connection === 'open') {
+        console.log('WhatsApp connected successfully');
+      }
 
-    if (connection === 'close' && !reconnecting) {
-      const status =
-        lastDisconnect?.error?.output?.statusCode;
+      if (connection === 'close' && !reconnecting) {
+        const status =
+          lastDisconnect?.error?.output?.statusCode;
 
-      console.log('WhatsApp disconnected:', status);
+        console.log('WhatsApp disconnected:', status);
 
-      if (status !== DisconnectReason.loggedOut) {
+        if (status === DisconnectReason.loggedOut) {
+          console.log(
+            'Logged out. Re-link WhatsApp before reconnecting.'
+          );
+          return;
+        }
+
         reconnecting = true;
+
         setTimeout(() => {
           reconnecting = false;
+          starting = false;
           pairingRequested = false;
-          startBot().catch(console.error);
+
+          startBot().catch(err => {
+            console.error('Restart error:', err.message);
+          });
         }, 5000);
-      } else {
-        console.log(
-          'Logged out. Re-link WhatsApp before reconnecting.'
-        );
       }
-    }
-  });
+    });
 
-  sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type !== 'notify') return;
+    sock.ev.on(
+      'messages.upsert',
+      async ({ messages, type }) => {
+        if (type !== 'notify') return;
 
-    for (const msg of messages) {
-      if (!msg.message || msg.key.fromMe) continue;
+        for (const msg of messages) {
+          if (!msg.message || msg.key.fromMe) continue;
 
-      const jid = msg.key.remoteJid;
+          const jid = msg.key.remoteJid;
 
-      if (!jid || jid === 'status@broadcast') continue;
-
-      const body = getText(msg);
-      if (!body.startsWith(PREFIX)) continue;
-
-      const args = body.slice(PREFIX.length).trim().split(/\s+/);
-      const command = (args.shift() || '').toLowerCase();
-
-      try {
-        switch (command) {
-          case 'menu':
-          case 'help': {
-            const caption = makeMenu();
-
-            if (MENU_IMAGE) {
-              await sock.sendMessage(jid, {
-                image: { url: MENU_IMAGE },
-                caption
-              });
-            } else {
-              await sock.sendMessage(jid, {
-                text: caption
-              });
-            }
-            break;
+          if (
+            !jid ||
+            jid === 'status@broadcast' ||
+            jid.endsWith('@g.us') === false &&
+            jid.endsWith('@s.whatsapp.net') === false
+          ) {
+            continue;
           }
 
-          case 'ping':
-            await sock.sendMessage(jid, {
-              text: '🏓 Pong!'
-            });
-            break;
+          const body = getText(msg);
 
-          case 'alive':
-            await sock.sendMessage(jid, {
-              text: '✅ Cool-boy-xmd is running!'
-            });
-            break;
+          if (!body.startsWith(PREFIX)) continue;
 
-          case 'owner':
-            await sock.sendMessage(jid, {
-              text: OWNER_NUMBER
-                ? `👑 Owner: ${OWNER_NUMBER}`
-                : 'Owner number is not configured.'
-            });
-            break;
+          const args = body
+            .slice(PREFIX.length)
+            .trim()
+            .split(/\s+/);
 
-          case 'uptime':
-            await sock.sendMessage(jid, {
-              text: `⏱️ Uptime: ${getUptime()}`
-            });
-            break;
+          const command = (args.shift() || '')
+            .toLowerCase();
 
-          default:
-            await sock.sendMessage(jid, {
-              text:
-                `❌ Unknown command: ${PREFIX}${command}\n` +
-                `Type ${PREFIX}menu to see commands.`
-            });
+          try {
+            switch (command) {
+              case 'menu':
+              case 'help': {
+                const caption = makeMenu();
+
+                if (MENU_IMAGE) {
+                  await sock.sendMessage(jid, {
+                    image: { url: MENU_IMAGE },
+                    caption
+                  });
+                } else {
+                  await sock.sendMessage(jid, {
+                    text: caption
+                  });
+                }
+
+                break;
+              }
+
+              case 'ping':
+                await sock.sendMessage(jid, {
+                  text: '🏓 Pong!'
+                });
+                break;
+
+              case 'alive':
+                await sock.sendMessage(jid, {
+                  text: '✅ COOL-BOY-XMD is running!'
+                });
+                break;
+
+              case 'owner':
+                await sock.sendMessage(jid, {
+                  text: OWNER_NUMBER
+                    ? `👑 Owner: ${OWNER_NUMBER}`
+                    : 'Owner number is not configured.'
+                });
+                break;
+
+              case 'uptime':
+                await sock.sendMessage(jid, {
+                  text: `⏱️ Uptime: ${getUptime()}`
+                });
+                break;
+
+              case 'github':
+                await sock.sendMessage(jid, {
+                  text:
+                    'GitHub: https://github.com/gk8715440-gif/Cool-boy-xmd'
+                });
+                break;
+
+              default:
+                await sock.sendMessage(jid, {
+                  text:
+                    `❌ Unknown command: ${PREFIX}${command}\n` +
+                    `Type ${PREFIX}menu to see commands.`
+                });
+            }
+          } catch (err) {
+            console.error(
+              'Command error:',
+              err.message
+            );
+          }
         }
-      } catch (err) {
-        console.error('Command error:', err.message);
       }
-    }
-  });
+    );
+  } catch (err) {
+    console.error('Bot startup error:', err.message);
+    starting = false;
+  }
 }
 
 if (!PHONE_NUMBER) {
   console.error(
-    'Set PHONE_NUMBER in Render Environment using country code.'
+    'Set PHONE_NUMBER in Render Environment using your country code.'
   );
 } else {
   startBot().catch(err => {
-    console.error('Bot startup error:', err);
+    starting = false;
+    console.error('Bot startup error:', err.message);
   });
 }
+
+process.on('SIGTERM', () => {
+  console.log('Server shutting down.');
+  server.close();
+});
