@@ -1,7 +1,17 @@
-import * as baileys from '@whiskeysockets/baileys'; import pino from 'pino'; import express from 'express'; const makeWASocket = baileys.default?.default || baileys.makeWASocket; const { useMultiFileAuthState, DisconnectReason } = baileys
-
+import * as baileys from '@whiskeysockets/baileys';
 import pino from 'pino';
 import express from 'express';
+
+const makeWASocket =
+  baileys.default?.default ||
+  baileys.default ||
+  baileys.makeWASocket;
+
+const {
+  useMultiFileAuthState,
+  DisconnectReason
+} = baileys;
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
