@@ -669,7 +669,7 @@ async function startBot() {
       if (connection === 'close') {
         const code = lastDisconnect?.error?.output?.statusCode;
         console.log('WhatsApp disconnected:', code);
-
+console.log('Disconnect error details:', lastDisconnect?.error);
         reconnecting = false;
 
         if (!stopping && code !== DisconnectReason.loggedOut) {
