@@ -106,7 +106,7 @@ async function startBot() {
   sock = makeWASocket({
     auth: state,
     logger,
-    browser: Browsers.windows('Chrome'),
+    browser: ['Windows', 'Chrome', 'Chrome 114.0.5735.198'],
     markOnlineOnConnect: false,
     syncFullHistory: false
   });
