@@ -1,7 +1,7 @@
+
 import baileys from '@whiskeysockets/baileys';
 import pino from 'pino';
 import express from 'express';
-import fs from 'fs';
 
 const makeWASocket =
   baileys.default || baileys.makeWASocket || baileys;
@@ -47,8 +47,13 @@ const server = app.listen(PORT, '0.0.0.0', () => {
 });
 
 function getText(msg) {
-  const m = msg.message;
+  let m = msg.message;
   if (!m) return '';
+
+  // Handle common WhatsApp message wrappers.
+  m = m.ephemeralMessage?.message || m;
+  m = m.viewOnceMessage?.message || m;
+  m = m.viewOnceMessageV2?.message || m;
 
   return (
     m.conversation ||
@@ -118,77 +123,107 @@ async function startBot() {
     sock = makeWASocket({
       auth: state,
       logger,
-      browser: ['Windows', 'Chrome', '114.0.5735.198'],
+      browser: ['Ubuntu', 'Chrome', '120.0.0'],
       markOnlineOnConnect: false,
       syncFullHistory: false
     });
 
-    sock.ev.on('creds.update', saveCreds);
+    const currentSock = sock;
 
-    sock.ev.on('connection.update', async (update) => {
-      const { connection, lastDisconnect } = update;
+    currentSock.ev.on('creds.update', saveCreds);
 
-      if (
-        connection === 'connecting' &&
-        !state.creds.registered &&
-        PHONE_NUMBER &&
-        !pairingRequested
-      ) {
-        pairingRequested = true;
+    // Only one connection handler.
+    currentSock.ev.on(
+      'connection.update',
+      async (update) => {
+        const { connection, lastDisconnect, qr } = update;
 
-        try {
-          await new Promise(resolve =>
-            setTimeout(resolve, 2000)
-          );
+        // Request a pairing code for an unregistered session.
+        if (
+          !state.creds.registered &&
+          PHONE_NUMBER &&
+          !pairingRequested &&
+          (qr || connection === 'connecting')
+        ) {
+          pairingRequested = true;
 
-          const code =
-            await sock.requestPairingCode(PHONE_NUMBER);
+          try {
+            // Allow the socket to initialise first.
+            await new Promise(resolve =>
+              setTimeout(resolve, 3000)
+            );
 
-          console.log('WhatsApp Pairing Code:', code);
-          console.log(
-            'WhatsApp → Linked devices → Link with phone number'
-          );
-        } catch (err) {
+            if (
+              currentSock !== sock ||
+              state.creds.registered
+            ) {
+              return;
+            }
+
+            const code =
+              await currentSock.requestPairingCode(
+                PHONE_NUMBER
+              );
+
+            console.log('WhatsApp Pairing Code:', code);
+            console.log(
+              'WhatsApp → Linked devices → Link with phone number'
+            );
+          } catch (err) {
+            pairingRequested = false;
+            console.error(
+              'Pairing code error:',
+              err.message
+            );
+          }
+        }
+
+        if (connection === 'open') {
+          console.log('WhatsApp connected successfully');
           pairingRequested = false;
+        }
+
+        if (connection === 'close') {
+          const status =
+            lastDisconnect?.error?.output?.statusCode;
+
           console.error(
-            'Pairing code error:',
-            err.message
+            'WhatsApp disconnected:',
+            status,
+            lastDisconnect?.error?.message || ''
           );
-        }
-      }
 
-      if (connection === 'open') {
-        console.log('WhatsApp connected successfully');
-      }
+          if (currentSock !== sock) return;
 
-      if (connection === 'close' && !reconnecting) {
-        const status =
-          lastDisconnect?.error?.output?.statusCode;
+          if (status === DisconnectReason.loggedOut) {
+            console.error(
+              'WhatsApp logged out. Re-link the device.'
+            );
+            starting = false;
+            return;
+          }
 
-        console.log('WhatsApp disconnected:', status);
+          if (reconnecting) return;
 
-        if (status === DisconnectReason.loggedOut) {
-          console.log(
-            'Logged out. Re-link WhatsApp before reconnecting.'
-          );
-          return;
-        }
-
-        reconnecting = true;
-
-        setTimeout(() => {
-          reconnecting = false;
+          reconnecting = true;
           starting = false;
-          pairingRequested = false;
 
-          startBot().catch(err => {
-            console.error('Restart error:', err.message);
-          });
-        }, 5000);
+          setTimeout(() => {
+            reconnecting = false;
+            pairingRequested = false;
+
+            startBot().catch(err => {
+              console.error(
+                'Restart error:',
+                err.message
+              );
+            });
+          }, 5000);
+        }
       }
-    });
+    );
 
-    sock.ev.on(
+    currentSock.ev.on(
       'messages.upsert',
       async ({ messages, type }) => {
         if (type !== 'notify') return;
@@ -201,14 +236,16 @@ async function startBot() {
           if (
             !jid ||
             jid === 'status@broadcast' ||
-            jid.endsWith('@g.us') === false &&
-            jid.endsWith('@s.whatsapp.net') === false
+            (
+              !jid.endsWith('@g.us') &&
+              !jid.endsWith('@s.whatsapp.net') &&
+              !jid.endsWith('@lid')
+            )
           ) {
             continue;
           }
 
           const body = getText(msg);
-
           if (!body.startsWith(PREFIX)) continue;
 
           const args = body
@@ -226,33 +263,32 @@ async function startBot() {
                 const caption = makeMenu();
 
                 if (MENU_IMAGE) {
-                  await sock.sendMessage(jid, {
+                  await currentSock.sendMessage(jid, {
                     image: { url: MENU_IMAGE },
                     caption
                   });
                 } else {
-                  await sock.sendMessage(jid, {
+                  await currentSock.sendMessage(jid, {
                     text: caption
                   });
                 }
-
                 break;
               }
 
               case 'ping':
-                await sock.sendMessage(jid, {
+                await currentSock.sendMessage(jid, {
                   text: '🏓 Pong!'
                 });
                 break;
 
               case 'alive':
-                await sock.sendMessage(jid, {
+                await currentSock.sendMessage(jid, {
                   text: '✅ COOL-BOY-XMD is running!'
                 });
                 break;
 
               case 'owner':
-                await sock.sendMessage(jid, {
+                await currentSock.sendMessage(jid, {
                   text: OWNER_NUMBER
                     ? `👑 Owner: ${OWNER_NUMBER}`
                     : 'Owner number is not configured.'
@@ -260,20 +296,20 @@ async function startBot() {
                 break;
 
               case 'uptime':
-                await sock.sendMessage(jid, {
+                await currentSock.sendMessage(jid, {
                   text: `⏱️ Uptime: ${getUptime()}`
                 });
                 break;
 
               case 'github':
-                await sock.sendMessage(jid, {
+                await currentSock.sendMessage(jid, {
                   text:
                     'GitHub: https://github.com/gk8715440-gif/Cool-boy-xmd'
                 });
                 break;
 
               default:
-                await sock.sendMessage(jid, {
+                await currentSock.sendMessage(jid, {
                   text:
                     `❌ Unknown command: ${PREFIX}${command}\n` +
                     `Type ${PREFIX}menu to see commands.`
@@ -296,7 +332,7 @@ async function startBot() {
 
 if (!PHONE_NUMBER) {
   console.error(
-    'Set PHONE_NUMBER in Render Environment using your country code.'
+    'Set PHONE_NUMBER in Render Environment with country code.'
   );
 } else {
   startBot().catch(err => {
@@ -308,4 +344,5 @@ if (!PHONE_NUMBER) {
 process.on('SIGTERM', () => {
   console.log('Server shutting down.');
   server.close();
+  sock?.end(new Error('Server shutting down'));
 });
