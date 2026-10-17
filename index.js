@@ -645,13 +645,14 @@ async function startBot() {
     );
 
     sock = makeWASocket({
-      auth: state,
-      logger,
-      printQRInTerminal: false,
-      browser: ['Ubuntu', 'Chrome', '120.0.0'],
-      markOnlineOnConnect: false,
-      syncFullHistory: false
-    });
+  auth: state,
+  logger,
+  printQRInTerminal: false,
+  version: [2, 3000, 1033893291],
+  browser: ['Ubuntu', 'Chrome', '145.0.0'],
+  markOnlineOnConnect: false,
+  syncFullHistory: false
+});
 
     sock.ev.on('creds.update', saveCreds);
 
