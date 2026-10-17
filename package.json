@@ -12,7 +12,7 @@
     "node": "22.x"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "6.7.24"
+    "@whiskeysockets/baileys": "6.7.24",
     "express": "^4.21.2",
     "pino": "^9.6.0"
   }
