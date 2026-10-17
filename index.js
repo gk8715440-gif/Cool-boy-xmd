@@ -1,7 +1,8 @@
 
 import makeWASocket, {
   useMultiFileAuthState,
-  DisconnectReason
+  DisconnectReason,
+  jidNormalizedUser
 } from '@whiskeysockets/baileys';
 
 import pino from 'pino';
@@ -12,38 +13,188 @@ const PORT = process.env.PORT || 3000;
 
 const PHONE_NUMBER = (process.env.PHONE_NUMBER || '').replace(/\D/g, '');
 const OWNER_NUMBER = (process.env.OWNER_NUMBER || '').replace(/\D/g, '');
-const MENU_IMAGE = process.env.MENU_IMAGE || '';
 
 const PREFIX = '.';
-const START_TIME = Date.now();
+const BOT_NAME = 'Cool-boy-xmd';
+const MENU_IMAGE =
+  'https://raw.githubusercontent.com/gk8715440-gif/Cool-boy-xmd/main/file_0000000012548243bf5dee8a3c0b406a.png';
 
+const START_TIME = Date.now();
 const logger = pino({ level: 'silent' });
 
 let sock;
 let reconnecting = false;
+let stopping = false;
 
-// ==============================
+// Settings remain in memory while the process runs.
+const groupSettings = new Map();
+
+// =========================
 // WEB SERVER
-// ==============================
+// =========================
 
 app.get('/', (req, res) => {
-  res.send('Cool-boy-xmd WhatsApp Bot is running!');
+  res.send(`${BOT_NAME} WhatsApp Bot is running!`);
 });
 
 app.get('/health', (req, res) => {
-  res.json({
-    status: 'running',
-    bot: 'Cool-boy-xmd'
-  });
+  res.json({ status: 'running', bot: BOT_NAME });
 });
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Web server running on port ${PORT}`);
 });
 
-// ==============================
+// =========================
+// COMMAND MENU
+// =========================
+
+const menu = `
+╭━━━〔 👑 COOL BOY XMD 〕━━━╮
+┃ 🤖 WHATSAPP BOT MENU
+╰━━━━━━━━━━━━━━━━━━━━━━╯
+
+〔 GENERAL 〕
+.alive
+.delete
+.mee
+.menu
+.pair
+.ping
+.help
+.owner
+.github
+.uptime
+
+〔 MUSIC 〕
+.csong
+.lyrics
+.play
+.song
+
+〔 DOWNLOADER 〕
+.fb
+.insta
+.pinterest
+.terabox
+.video
+.xnxx
+
+〔 STICKER 〕
+.addspk
+.brat
+.circle
+.delspk
+.miku
+.spk
+.sticker
+.take
+.tgspk
+.tgsticker
+.toimg
+.tomp4
+
+〔 TEXT 〕
+.fancy
+.styletext
+
+〔 FUN 〕
+.kiss
+.nsfw
+.ship
+.waifu
+.waifu2
+
+〔 GROUP 〕
+.add
+.admins
+.antibadword
+.antibot
+.antidemote
+.antigmention
+.antigstatus
+.antilink
+.antimedia
+.antimention
+.antipromote
+.antisticker
+.demote
+.fullgpp
+.goodbye
+.greacT
+.groupinfo
+.gstatus
+.inactive
+.kick
+.kickall
+.leave
+.msgdlt
+.mute
+.promote
+.resetwarn
+.revoke
+.setdesc
+.setname
+.tag
+.tagall
+.testgoodbye
+.testwelcome
+.unmute
+.warn
+.warns
+.welcome
+.open
+.close
+
+〔 OWNER 〕
+.antidelete
+.ban
+.block
+.broadcast
+.chr
+.cpost
+.fullpp
+.join
+.listban
+.mention
+.mode
+.restart
+.sudo
+.totalbot
+.unban
+.unblock
+
+〔 SETTINGS 〕
+.alwaysonline
+.autoreact
+.autoread
+.autotyping
+.bot_image
+.botname
+.prefix
+.setowner
+.settings
+
+〔 UTILITY 〕
+.autostatus
+.gjid
+.info
+.jid
+.lid
+.url
+.vv
+.vv2
+.weather
+
+╭━━━━━━━━━━━━━━━━━━━━━━╮
+Prefix: ${PREFIX}
+Bot: ${BOT_NAME}
+╰━━━━━━━━━━━━━━━━━━━━━━╯
+`;
+
+// =========================
 // HELPERS
-// ==============================
+// =========================
 
 function getText(message) {
   return (
@@ -51,8 +202,10 @@ function getText(message) {
     message?.extendedTextMessage?.text ||
     message?.imageMessage?.caption ||
     message?.videoMessage?.caption ||
+    message?.documentMessage?.caption ||
     message?.buttonsResponseMessage?.selectedButtonId ||
     message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
+    message?.templateButtonReplyMessage?.selectedId ||
     ''
   );
 }
@@ -62,221 +215,420 @@ function getUptime() {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   const remaining = seconds % 60;
-
   return `${hours}h ${minutes}m ${remaining}s`;
 }
 
-function getMenu() {
-  return `╭━━━〔 COOL BOY XMD 〕━━━╮
-┃
-┃ 🤖 WhatsApp Bot Menu
-┃
-┃ GENERAL
-┃ ${PREFIX}menu
-┃ ${PREFIX}help
-┃ ${PREFIX}ping
-┃ ${PREFIX}alive
-┃ ${PREFIX}uptime
-┃ ${PREFIX}owner
-┃ ${PREFIX}github
-┃
-┃ GROUP MANAGEMENT
-┃ ${PREFIX}tagall
-┃ ${PREFIX}kick @mention
-┃ ${PREFIX}promote @mention
-┃ ${PREFIX}demote @mention
-┃
-┃ MEDIA / AI
-┃ .song (integration required)
-┃ .play (integration required)
-┃ .video (integration required)
-┃ .sticker (not implemented)
-┃ .gpt (AI integration required)
-┃
-╰━━━━━━━━━━━━━━━━━━━━━━╯
-
-Prefix: ${PREFIX}
-Bot: Cool-boy-xmd`;
+function getSettings(groupId) {
+  if (!groupSettings.has(groupId)) {
+    groupSettings.set(groupId, {
+      antilink: false,
+      welcome: false,
+      goodbye: false
+    });
+  }
+  return groupSettings.get(groupId);
 }
 
-// ==============================
+function getNumber(jid) {
+  return (jid || '').split('@')[0].replace(/\D/g, '');
+}
+
+function isLink(text) {
+  return /https?:\/\/|www\.|chat\.whatsapp\.com\/|t\.me\//i.test(text);
+}
+
+async function getGroupInfo(groupId) {
+  return await sock.groupMetadata(groupId);
+}
+
+async function isGroupAdmin(groupId, participantJid) {
+  const metadata = await getGroupInfo(groupId);
+  const normalized = jidNormalizedUser(participantJid);
+
+  const participant = metadata.participants.find(
+    p => jidNormalizedUser(p.id) === normalized
+  );
+
+  return (
+    participant?.admin === 'admin' ||
+    participant?.admin === 'superadmin'
+  );
+}
+
+async function isBotAdmin(groupId) {
+  const metadata = await getGroupInfo(groupId);
+  const botJid = jidNormalizedUser(sock.user.id);
+
+  const botParticipant = metadata.participants.find(
+    p => jidNormalizedUser(p.id) === botJid
+  );
+
+  return (
+    botParticipant?.admin === 'admin' ||
+    botParticipant?.admin === 'superadmin'
+  );
+}
+
+// =========================
 // COMMAND HANDLER
-// ==============================
+// =========================
 
 async function processCommand(sender, messageText, message) {
   const text = messageText.trim();
-
   if (!text.startsWith(PREFIX)) return;
 
   const parts = text.slice(PREFIX.length).trim().split(/\s+/);
   const command = (parts.shift() || '').toLowerCase();
-
   const args = parts;
+
+  if (!command) return;
+
   const isGroup = sender.endsWith('@g.us');
-  const senderNumber = (message.key.participant || sender)
-    .split('@')[0]
-    .replace(/\D/g, '');
+  const senderJid = message.key.participant || sender;
+  const senderNumber = getNumber(senderJid);
 
   const isOwner =
     OWNER_NUMBER !== '' && senderNumber === OWNER_NUMBER;
 
-  const reply = async (text) => {
+  const reply = async (content) => {
     await sock.sendMessage(
       sender,
-      { text },
+      { text: content },
       { quoted: message }
     );
   };
 
-  // GENERAL COMMANDS
-
-  if (command === 'menu' || command === 'help') {
-    if (MENU_IMAGE.startsWith('https://') ||
-        MENU_IMAGE.startsWith('http://')) {
-      try {
-        await sock.sendMessage(
-          sender,
-          {
-            image: { url: MENU_IMAGE },
-            caption: getMenu()
-          },
-          { quoted: message }
-        );
-      } catch {
-        await reply(getMenu());
-      }
-    } else {
-      await reply(getMenu());
+  const requireGroup = async () => {
+    if (!isGroup) {
+      await reply('❌ এই কমান্ড শুধু গ্রুপে ব্যবহার করা যাবে।');
+      return false;
     }
+    return true;
+  };
+
+  const requireAdmin = async () => {
+    if (!(await requireGroup())) return false;
+
+    if (!isOwner && !(await isGroupAdmin(sender, senderJid))) {
+      await reply('❌ এই কমান্ডের জন্য গ্রুপ অ্যাডমিন হতে হবে।');
+      return false;
+    }
+    return true;
+  };
+
+  // MENU WITH YOUR UPLOADED IMAGE
+
+  if (['menu', 'help'].includes(command)) {
+    try {
+      await sock.sendMessage(
+        sender,
+        {
+          image: { url: MENU_IMAGE },
+          caption: `👑 ${BOT_NAME}\n🤖 WhatsApp Bot Menu\n\nনিচে সব কমান্ড দেখো।\nPrefix: ${PREFIX}`
+        },
+        { quoted: message }
+      );
+    } catch (error) {
+      console.error('Menu image error:', error.message);
+      await reply(`👑 ${BOT_NAME}\n${MENU_IMAGE}`);
+    }
+
+    await reply(menu);
     return;
   }
 
+  // GENERAL COMMANDS
+
   if (command === 'ping') {
-    await reply('🏓 Pong! Cool-boy-xmd is running.');
+    await reply('🏓 Pong! Bot is running.');
     return;
   }
 
   if (command === 'alive') {
-    await reply(
-      `✅ Cool-boy-xmd is alive!\n⏱️ Uptime: ${getUptime()}`
-    );
+    await reply(`✅ ${BOT_NAME} is alive!\n⏱️ Uptime: ${getUptime()}`);
     return;
   }
 
   if (command === 'uptime') {
-    await reply(`⏱️ Bot uptime: ${getUptime()}`);
+    await reply(`⏱️ Uptime: ${getUptime()}`);
     return;
   }
 
-  if (command === 'owner') {
+  if (command === 'owner' || command === 'setowner') {
+    if (command === 'setowner' && !isOwner) {
+      await reply('❌ শুধু বট Owner এই কমান্ড ব্যবহার করতে পারবেন।');
+      return;
+    }
+
     await reply(
       OWNER_NUMBER
         ? `👑 Owner: +${OWNER_NUMBER}`
-        : 'Owner number is not configured in Render.'
+        : 'Owner number সেট করা নেই।'
     );
     return;
   }
 
   if (command === 'github') {
     await reply(
-      'GitHub repository:\nhttps://github.com/gk8715440-gif/Cool-boy-xmd'
+      'GitHub Repository:\nhttps://github.com/gk8715440-gif/Cool-boy-xmd'
     );
     return;
   }
 
-  // GROUP COMMANDS
+  if (command === 'mee' || command === 'jid' || command === 'gjid') {
+    await reply(
+      `Your JID: ${senderJid}\nGroup: ${isGroup ? sender : 'Private chat'}`
+    );
+    return;
+  }
 
-  if (['tagall', 'kick', 'promote', 'demote'].includes(command)) {
+  if (command === 'info') {
+    await reply(
+      `🤖 ${BOT_NAME}\nPrefix: ${PREFIX}\nUptime: ${getUptime()}`
+    );
+    return;
+  }
+
+  if (command === 'settings') {
     if (!isGroup) {
-      await reply('❌ এই কমান্ড শুধু গ্রুপে ব্যবহার করা যাবে।');
+      await reply(
+        `Bot settings\nPrefix: ${PREFIX}\nOwner: ${OWNER_NUMBER || 'Not configured'}`
+      );
       return;
     }
 
-    if (!isOwner) {
-      const metadata = await sock.groupMetadata(sender);
-      const participant = metadata.participants.find(
-        p => p.id === (message.key.participant || sender)
-      );
+    const s = getSettings(sender);
+    await reply(
+      `⚙️ Group Settings\nAnti-link: ${s.antilink ? 'ON' : 'OFF'}\nWelcome: ${s.welcome ? 'ON' : 'OFF'}\nGoodbye: ${s.goodbye ? 'ON' : 'OFF'}`
+    );
+    return;
+  }
 
-      const isAdmin =
-        participant?.admin === 'admin' ||
-        participant?.admin === 'superadmin';
+  if (command === 'prefix') {
+    await reply(`বর্তমান Prefix: ${PREFIX}`);
+    return;
+  }
 
-      if (!isAdmin) {
-        await reply('❌ এই কমান্ড ব্যবহার করতে গ্রুপ অ্যাডমিন হতে হবে।');
-        return;
-      }
-    }
+  if (command === 'botname') {
+    await reply(`Bot name: ${BOT_NAME}`);
+    return;
+  }
+
+  if (command === 'bot_image') {
+    await reply(`Menu image URL:\n${MENU_IMAGE}`);
+    return;
+  }
+
+  // GROUP ADMIN COMMANDS
+
+  if (command === 'groupinfo') {
+    if (!(await requireGroup())) return;
+
+    const metadata = await getGroupInfo(sender);
+    await reply(
+      `📋 Group: ${metadata.subject}\n` +
+      `👥 Members: ${metadata.participants.length}\n` +
+      `🆔 JID: ${sender}`
+    );
+    return;
+  }
+
+  if (command === 'admins') {
+    if (!(await requireGroup())) return;
+
+    const metadata = await getGroupInfo(sender);
+    const admins = metadata.participants.filter(p => p.admin);
+
+    await sock.sendMessage(sender, {
+      text: '👑 Group Admins\n\n' +
+        admins.map(p => `@${getNumber(p.id)}`).join('\n'),
+      mentions: admins.map(p => p.id)
+    }, { quoted: message });
+    return;
+  }
+
+  if (command === 'tagall' || command === 'tag' || command === 'mention') {
+    if (!(await requireAdmin())) return;
+
+    const metadata = await getGroupInfo(sender);
+    const mentions = metadata.participants.map(p => p.id);
+
+    await sock.sendMessage(sender, {
+      text: `📢 ${args.join(' ') || 'Attention everyone!'}\n\n` +
+        mentions.map(jid => `@${getNumber(jid)}`).join('\n'),
+      mentions
+    }, { quoted: message });
+    return;
+  }
+
+  if (['kick', 'promote', 'demote'].includes(command)) {
+    if (!(await requireAdmin())) return;
 
     const mentioned =
       message.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
 
-    if (command === 'tagall') {
-      const metadata = await sock.groupMetadata(sender);
-      const mentions = metadata.participants.map(p => p.id);
-
-      const body = args.join(' ') || 'Group members';
-
-      await sock.sendMessage(sender, {
-        text:
-          `📢 ${body}\n\n` +
-          mentions.map(jid => `@${jid.split('@')[0]}`).join('\n'),
-        mentions
-      });
-      return;
-    }
-
-    if (mentioned.length === 0) {
+    if (!mentioned.length) {
       await reply(`ব্যবহার: .${command} @mention`);
       return;
     }
 
-    if (command === 'kick') {
-      await sock.groupParticipantsUpdate(sender, mentioned, 'remove');
-      await reply('✅ সদস্য সরানোর অনুরোধ পাঠানো হয়েছে।');
+    if (!(await isBotAdmin(sender))) {
+      await reply('❌ Bot-কে আগে গ্রুপ Admin বানাও।');
       return;
     }
 
-    if (command === 'promote') {
-      await sock.groupParticipantsUpdate(sender, mentioned, 'promote');
-      await reply('✅ সদস্যকে অ্যাডমিন করার অনুরোধ পাঠানো হয়েছে।');
-      return;
-    }
+    const action = command === 'kick'
+      ? 'remove'
+      : command === 'promote'
+        ? 'promote'
+        : 'demote';
 
-    if (command === 'demote') {
-      await sock.groupParticipantsUpdate(sender, mentioned, 'demote');
-      await reply('✅ অ্যাডমিন পদ সরানোর অনুরোধ পাঠানো হয়েছে।');
-      return;
-    }
+    await sock.groupParticipantsUpdate(sender, mentioned, action);
+    await reply(`✅ ${command} কমান্ড সম্পন্ন করার অনুরোধ পাঠানো হয়েছে।`);
+    return;
   }
 
-  // COMMANDS THAT NEED MORE INTEGRATION
+  if (command === 'open' || command === 'close') {
+    if (!(await requireAdmin())) return;
 
-  const extraCommands = [
-    'song', 'play', 'gan', 'spotify', 'fb', 'insta',
-    'tiktok', 'ytmp4', 'pinterest', 'video', 'gpt',
-    'apk', 'spam', 'sudo', 'sticker', 'image'
-  ];
+    if (!(await isBotAdmin(sender))) {
+      await reply('❌ Bot-কে গ্রুপ Admin বানাতে হবে।');
+      return;
+    }
 
-  if (extraCommands.includes(command)) {
-    await reply(
-      `⚠️ .${command} কমান্ডটি তালিকায় আছে, কিন্তু এটি চালানোর জন্য অতিরিক্ত ফিচার/API সেটআপ প্রয়োজন।`
+    await sock.groupSettingUpdate(
+      sender,
+      command === 'open' ? 'not_announcement' : 'announcement'
+    );
+
+    await reply(command === 'open'
+      ? '✅ গ্রুপ সবার মেসেজের জন্য খুলে দেওয়া হয়েছে।'
+      : '🔒 গ্রুপ শুধু Admin-দের মেসেজের জন্য বন্ধ করা হয়েছে।'
     );
     return;
   }
+
+  if (command === 'setname') {
+    if (!(await requireAdmin())) return;
+    const name = args.join(' ');
+    if (!name) {
+      await reply('ব্যবহার: .setname নতুন গ্রুপের নাম');
+      return;
+    }
+    await sock.groupUpdateSubject(sender, name);
+    await reply('✅ Group name update request sent.');
+    return;
+  }
+
+  if (command === 'setdesc') {
+    if (!(await requireAdmin())) return;
+    const description = args.join(' ');
+    if (!description) {
+      await reply('ব্যবহার: .setdesc নতুন বিবরণ');
+      return;
+    }
+    await sock.groupUpdateDescription(sender, description);
+    await reply('✅ Group description update request sent.');
+    return;
+  }
+
+  // ANTI-LINK SETTING
+  // Bot must be a group admin to delete other members' messages.
+
+  if (command === 'antilink') {
+    if (!(await requireAdmin())) return;
+
+    const s = getSettings(sender);
+    const option = (args[0] || '').toLowerCase();
+
+    if (!['on', 'off'].includes(option)) {
+      await reply(`Anti-link: ${s.antilink ? 'ON' : 'OFF'}\nচালু: .antilink on\nবন্ধ: .antilink off`);
+      return;
+    }
+
+    s.antilink = option === 'on';
+    await reply(`✅ Anti-link ${s.antilink ? 'ON' : 'OFF'} করা হয়েছে।`);
+    return;
+  }
+
+  // DELETE A QUOTED MESSAGE
+  if (command === 'delete' || command === 'del') {
+    if (!isGroup || !(await requireAdmin())) return;
+
+    const quoted = message.message?.extendedTextMessage?.contextInfo;
+    if (!quoted?.stanzaId || !quoted?.participant) {
+      await reply('যে মেসেজ মুছতে চাও সেটিতে Reply করে .delete লেখো।');
+      return;
+    }
+
+    if (!(await isBotAdmin(sender))) {
+      await reply('❌ Bot-কে গ্রুপ Admin বানাও।');
+      return;
+    }
+
+    await sock.sendMessage(sender, {
+      delete: {
+        remoteJid: sender,
+        fromMe: false,
+        id: quoted.stanzaId,
+        participant: quoted.participant
+      }
+    });
+    return;
+  }
+
+  // SETTINGS THAT ARE NOT IMPLEMENTED YET
+  // Do not pretend unsupported features work.
+
+  const needsIntegration = [
+    'csong', 'lyrics', 'play', 'song',
+    'fb', 'insta', 'pinterest', 'terabox', 'video', 'xnxx',
+    'addspk', 'brat', 'circle', 'delspk', 'miku', 'spk',
+    'sticker', 'take', 'tgspk', 'tgsticker', 'toimg', 'tomp4',
+    'fancy', 'styletext', 'kiss', 'nsfw', 'ship', 'waifu', 'waifu2',
+    'add', 'antibadword', 'antibot', 'antidemote',
+    'antigmention', 'antigstatus', 'antimedia', 'antimention',
+    'antipromote', 'antisticker', 'fullgpp', 'goodbye',
+    'gstatus', 'inactive', 'kickall', 'leave', 'msgdlt',
+    'mute', 'resetwarn', 'revoke', 'testgoodbye', 'testwelcome',
+    'unmute', 'warn', 'warns', 'welcome',
+    'antidelete', 'ban', 'block', 'broadcast', 'chr', 'cpost',
+    'join', 'listban', 'mode', 'restart', 'sudo', 'totalbot',
+    'unban', 'unblock', 'alwaysonline', 'autoreact', 'autoread',
+    'autotyping', 'autostatus', 'lid', 'url', 'vv', 'vv2', 'weather'
+  ];
+
+  if (needsIntegration.includes(command)) {
+    if (['play', 'song', 'csong', 'lyrics'].includes(command)) {
+      await reply(
+        `🎵 .${command} কমান্ডের নাম মেনুতে আছে।\n` +
+        'গান চালানোর জন্য আলাদা music search/download integration লাগবে।\n' +
+        'এই কোডে এখনো সেই integration যোগ করা নেই।'
+      );
+      return;
+    }
+
+    await reply(
+      `⚠️ .${command} কমান্ডটি মেনুতে আছে, কিন্তু এর কার্যকর ফিচার এখনো যোগ করা হয়নি।`
+    );
+    return;
+  }
+
+  await reply(`❓ অজানা কমান্ড: ${PREFIX}${command}\nসব কমান্ড দেখতে .menu লেখো।`);
 }
 
-// ==============================
+// =========================
 // START WHATSAPP BOT
-// ==============================
+// =========================
 
 async function startBot() {
-  if (reconnecting) return;
+  if (reconnecting || stopping) return;
   reconnecting = true;
 
   try {
-    const { state, saveCreds } =
-      await useMultiFileAuthState('./auth_info_baileys');
+    const { state, saveCreds } = await useMultiFileAuthState(
+      './auth_info_baileys'
+    );
 
     sock = makeWASocket({
       auth: state,
@@ -297,50 +649,37 @@ async function startBot() {
       }
 
       if (connection === 'open') {
-        console.log('✅ WhatsApp connected successfully!');
+        console.log('✅ WhatsApp connected!');
       }
 
       if (connection === 'close') {
-        const statusCode =
-          lastDisconnect?.error?.output?.statusCode;
+        const code = lastDisconnect?.error?.output?.statusCode;
+        console.log('WhatsApp disconnected:', code);
 
-        console.log('WhatsApp disconnected. Status:', statusCode);
+        reconnecting = false;
 
-        if (statusCode !== DisconnectReason.loggedOut) {
-          console.log('Reconnecting in 5 seconds...');
-          setTimeout(() => {
-            reconnecting = false;
-            startBot();
-          }, 5000);
-        } else {
-          console.log(
-            'WhatsApp logged out. Re-pairing may be required.'
-          );
-          reconnecting = false;
+        if (!stopping && code !== DisconnectReason.loggedOut) {
+          setTimeout(startBot, 5000);
+        } else if (code === DisconnectReason.loggedOut) {
+          console.log('WhatsApp logged out. Pair again.');
         }
       }
     });
 
-    // Pairing code for a new WhatsApp connection
     if (!state.creds.registered) {
       if (!PHONE_NUMBER) {
-        console.log(
-          'Set PHONE_NUMBER in Render Environment Variables.'
-        );
+        console.log('Set PHONE_NUMBER in your hosting environment.');
       } else {
         try {
           await new Promise(resolve => setTimeout(resolve, 3000));
-
           const code = await sock.requestPairingCode(PHONE_NUMBER);
           console.log('WhatsApp Pairing Code:', code);
-          console.log('Enter this code in WhatsApp Linked Devices.');
         } catch (error) {
           console.error('Pairing code error:', error.message);
         }
       }
     }
 
-    // Incoming messages
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       if (type !== 'notify') return;
 
@@ -352,9 +691,38 @@ async function startBot() {
           if (!sender || sender === 'status@broadcast') continue;
 
           const text = getText(message.message);
-          if (!text) continue;
 
-          await processCommand(sender, text, message);
+          // Basic anti-link moderation for enabled groups.
+          if (
+            sender.endsWith('@g.us') &&
+            text &&
+            isLink(text) &&
+            !text.trim().startsWith(PREFIX)
+          ) {
+            const settings = getSettings(sender);
+            const participant = message.key.participant;
+
+            if (
+              settings.antilink &&
+              participant &&
+              !(await isGroupAdmin(sender, participant)) &&
+              await isBotAdmin(sender)
+            ) {
+              await sock.sendMessage(sender, {
+                delete: {
+                  remoteJid: sender,
+                  fromMe: false,
+                  id: message.key.id,
+                  participant
+                }
+              });
+              continue;
+            }
+          }
+
+          if (text) {
+            await processCommand(sender, text, message);
+          }
         } catch (error) {
           console.error('Message handler error:', error.message);
         }
@@ -363,25 +731,26 @@ async function startBot() {
 
   } catch (error) {
     console.error('Bot startup error:', error);
-    setTimeout(() => {
-      reconnecting = false;
-      startBot();
-    }, 10000);
+    reconnecting = false;
+    if (!stopping) setTimeout(startBot, 10000);
     return;
   }
 
   reconnecting = false;
 }
 
-// ==============================
+// =========================
 // SHUTDOWN
-// ==============================
+// =========================
 
 process.on('SIGTERM', async () => {
+  stopping = true;
   console.log('Shutting down bot...');
   try {
     if (sock) sock.end(undefined);
-  } catch {}
+  } catch (error) {
+    console.error(error.message);
+  }
   process.exit(0);
 });
 
