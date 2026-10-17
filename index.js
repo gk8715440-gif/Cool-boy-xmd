@@ -1,9 +1,4 @@
-import makeWASocket from '@whiskeysockets/baileys';
-
-import {
-  useMultiFileAuthState,
-  DisconnectReason
-} from '@whiskeysockets/baileys';
+import * as baileys from '@whiskeysockets/baileys'; import pino from 'pino'; import express from 'express'; const makeWASocket = baileys.default?.default || baileys.makeWASocket; const { useMultiFileAuthState, DisconnectReason } = baileys
 
 import pino from 'pino';
 import express from 'express';
