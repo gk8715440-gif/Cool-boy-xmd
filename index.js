@@ -22,16 +22,15 @@ const MENU_IMAGE =
   'https://raw.githubusercontent.com/gk8715440-gif/Cool-boy-xmd/main/file_00000000befc7209aec871aa090da284.png';
 
 const logger = pino({ level: 'silent' });
-
 let sock;
 let reconnectTimer;
 let starting = false;
 let pairingRequested = false;
+
 const startTime = Date.now();
 
 const menuText = `
 ╭━━━〔 ${BOT_NAME} 〕━━━╮
-┃
 ┃ 👑 OWNER MENU
 ┃ .owner
 ┃ .alive
@@ -46,13 +45,12 @@ const menuText = `
 ┃ 👥 GROUP MENU
 ┃ .groupinfo
 ┃ .admins
-┃ .tagall
+┃ .tagall [message]
 ┃ .kick @user
 ┃ .promote @user
 ┃ .demote @user
 ┃ .open
 ┃ .close
-┃
 ╰━━━━━━━━━━━━━━━━━━╯
 `;
 
@@ -75,14 +73,14 @@ async function sendMenu(jid) {
       caption: menuText
     });
   } catch (error) {
-    console.log('Menu image error:', error.message);
+    console.error('Menu image error:', error.message);
     await sock.sendMessage(jid, { text: menuText });
   }
 }
 
 async function isGroupAdmin(jid, sender) {
-  const metadata = await sock.groupMetadata(jid);
-  const participant = metadata.participants.find(p => p.id === sender);
+  const group = await sock.groupMetadata(jid);
+  const participant = group.participants.find(p => p.id === sender);
   return Boolean(participant?.admin);
 }
 
@@ -92,9 +90,9 @@ async function processCommand(message) {
 
   const jid = message.key.remoteJid;
   const sender = message.key.participant || jid;
+  const content = message.message;
 
   let body = '';
-  const content = message.message;
 
   if (content.conversation) {
     body = content.conversation;
@@ -111,8 +109,7 @@ async function processCommand(message) {
 
   const parts = body.slice(PREFIX.length).trim().split(/\s+/);
   const command = (parts.shift() || '').toLowerCase();
-  const args = parts;
-  const text = args.join(' ');
+  const text = parts.join(' ');
 
   const reply = async (text) => {
     await sock.sendMessage(jid, { text }, { quoted: message });
@@ -128,7 +125,7 @@ async function processCommand(message) {
         break;
 
       case 'ping':
-        await reply('🏓 Pong! Bot is online.');
+        await reply('🏓 Pong! Cool-boy-xmd is online.');
         break;
 
       case 'alive':
@@ -139,7 +136,7 @@ async function processCommand(message) {
         await reply(
           OWNER_NUMBER
             ? `👑 Owner: ${OWNER_NUMBER}`
-            : 'Render Environment-এ OWNER_NUMBER সেট করা নেই।'
+            : 'OWNER_NUMBER Render Environment-এ সেট করা নেই।'
         );
         break;
 
@@ -148,21 +145,21 @@ async function processCommand(message) {
         break;
 
       case 'uptime': {
-        const seconds = Math.floor((Date.now() - startTime) / 1000);
-        const days = Math.floor(seconds / 86400);
-        const hours = Math.floor((seconds % 86400) / 3600);
-        const minutes = Math.floor((seconds % 3600) / 60);
-        const secs = seconds % 60;
+        const total = Math.floor((Date.now() - startTime) / 1000);
+        const days = Math.floor(total / 86400);
+        const hours = Math.floor((total % 86400) / 3600);
+        const minutes = Math.floor((total % 3600) / 60);
+        const seconds = total % 60;
 
         await reply(
-          `⏱️ Uptime: ${days}d ${hours}h ${minutes}m ${secs}s`
+          `⏱️ Uptime: ${days}d ${hours}h ${minutes}m ${seconds}s`
         );
         break;
       }
 
       case 'groupinfo': {
         if (!jid.endsWith('@g.us')) {
-          await reply('এই কমান্ডটি শুধু গ্রুপে ব্যবহার করো।');
+          await reply('এই কমান্ডটি শুধু গ্রুপে ব্যবহার করা যাবে।');
           break;
         }
 
@@ -177,7 +174,7 @@ async function processCommand(message) {
 
       case 'admins': {
         if (!jid.endsWith('@g.us')) {
-          await reply('এই কমান্ডটি শুধু গ্রুপে ব্যবহার করো।');
+          await reply('এই কমান্ডটি শুধু গ্রুপে ব্যবহার করা যাবে।');
           break;
         }
 
@@ -185,9 +182,10 @@ async function processCommand(message) {
         const admins = group.participants.filter(p => p.admin);
 
         await sock.sendMessage(jid, {
-          text: '👑 Group Admins:\n' +
+          text:
+            '👑 Group Admins:\n' +
             (admins.map(p => `@${p.id.split('@')[0]}`).join('\n') ||
-             'No admins found'),
+              'No admins found'),
           mentions: admins.map(p => p.id)
         });
         break;
@@ -195,12 +193,12 @@ async function processCommand(message) {
 
       case 'tagall': {
         if (!jid.endsWith('@g.us')) {
-          await reply('এই কমান্ডটি শুধু গ্রুপে ব্যবহার করো।');
+          await reply('এই কমান্ডটি শুধু গ্রুপে ব্যবহার করা যাবে।');
           break;
         }
 
         if (!(await isGroupAdmin(jid, sender))) {
-          await reply('❌ এই কমান্ড ব্যবহার করতে গ্রুপ অ্যাডমিন হতে হবে।');
+          await reply('❌ গ্রুপ অ্যাডমিন অনুমতি প্রয়োজন।');
           break;
         }
 
@@ -219,7 +217,7 @@ async function processCommand(message) {
       case 'promote':
       case 'demote': {
         if (!jid.endsWith('@g.us')) {
-          await reply('এই কমান্ডটি শুধু গ্রুপে ব্যবহার করো।');
+          await reply('এই কমান্ডটি শুধু গ্রুপে ব্যবহার করা যাবে।');
           break;
         }
 
@@ -229,7 +227,7 @@ async function processCommand(message) {
         }
 
         const targets =
-          message.message.extendedTextMessage?.contextInfo?.mentionedJid || [];
+          content.extendedTextMessage?.contextInfo?.mentionedJid || [];
 
         if (!targets.length) {
           await reply(`ব্যবহার: .${command} @user`);
@@ -248,7 +246,7 @@ async function processCommand(message) {
       case 'open':
       case 'close': {
         if (!jid.endsWith('@g.us')) {
-          await reply('এই কমান্ডটি শুধু গ্রুপে ব্যবহার করো।');
+          await reply('এই কমান্ডটি শুধু গ্রুপে ব্যবহার করা যাবে।');
           break;
         }
 
@@ -271,7 +269,7 @@ async function processCommand(message) {
       }
 
       default:
-        await reply(`❓ অজানা কমান্ড: ${PREFIX}${command}\n.menu লিখে মেনু দেখো।`);
+        await reply(`❓ অজানা কমান্ড: .${command}\n.menu লিখে মেনু দেখো।`);
     }
   } catch (error) {
     console.error('Command error:', error.message);
@@ -305,17 +303,11 @@ async function startBot() {
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
 
-      if (qr && !state.creds.registered) {
-        console.log(
-          'QR তৈরি হয়েছে। ফোনে QR scan অথবা pairing-code পদ্ধতি ব্যবহার করো।'
-        );
-      }
-
       if (
+        qr &&
         !state.creds.registered &&
         PHONE_NUMBER &&
-        !pairingRequested &&
-        (qr || connection === 'connecting')
+        !pairingRequested
       ) {
         pairingRequested = true;
 
@@ -327,6 +319,10 @@ async function startBot() {
           pairingRequested = false;
           console.error('Pairing code error:', error.message);
         }
+      }
+
+      if (!PHONE_NUMBER && !state.creds.registered) {
+        console.error('Render Environment-এ PHONE_NUMBER সেট করা নেই।');
       }
 
       if (connection === 'open') {
@@ -346,9 +342,7 @@ async function startBot() {
         starting = false;
 
         if (statusCode === DisconnectReason.loggedOut) {
-          console.error(
-            'WhatsApp logged out. Re-link the account before reconnecting.'
-          );
+          console.error('WhatsApp logged out. আবার লিংক করতে হবে।');
           return;
         }
 
