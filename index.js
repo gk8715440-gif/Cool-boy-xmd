@@ -1,9 +1,23 @@
-import makeWASocket, {
+
+import * as Baileys from '@whiskeysockets/baileys';
+
+const makeWASocket =
+  Baileys.default?.default ??
+  Baileys.default ??
+  Baileys.makeWASocket;
+
+const {
   useMultiFileAuthState,
   DisconnectReason,
   jidNormalizedUser
-} from '@whiskeysockets/baileys';
+} = Baileys;
 
+console.log('Baileys version export check:', {
+  defaultType: typeof Baileys.default,
+  nestedDefaultType: typeof Baileys.default?.default,
+  namedType: typeof Baileys.makeWASocket,
+  selectedType: typeof makeWASocket
+});
 import pino from 'pino';
 import express from 'express';
 
