@@ -3,8 +3,14 @@ import baileys from '@whiskeysockets/baileys';
 import pino from 'pino';
 import express from 'express';
 
-const makeWASocket =
-  baileys.default || baileys.makeWASocket || baileys;
+
+const useMultiFileAuthState =
+  baileys.useMultiFileAuthState ||
+  baileys.default?.useMultiFileAuthState;
+
+const DisconnectReason =
+  baileys.DisconnectReason ||
+  baileys.default?.DisconnectReason;
 
 const {
   useMultiFileAuthState,
