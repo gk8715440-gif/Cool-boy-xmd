@@ -15,6 +15,13 @@ OWNER_NUMBER = os.getenv("OWNER_NUMBER", "YOUR_NUMBER")
 PREFIX = "."
 START_TIME = time.time()
 
+# Public image URL for the bot menu
+MENU_IMAGE_URL = (
+    "https://raw.githubusercontent.com/"
+    "gk8715440-gif/Cool-boy-xmd/main/"
+    "file_0000000012548243bf5dee8a3c0b406a.png"
+)
+
 # Command list
 COMMANDS = {
     "AUTO": [
@@ -52,8 +59,7 @@ COMMANDS = {
 
 
 def send_message(to, message):
-    """Send a WhatsApp text message using Cloud API."""
-
+    """Send a WhatsApp text message."""
     if not WHATSAPP_TOKEN or not PHONE_NUMBER_ID:
         print("Missing WhatsApp API credentials.")
         return
@@ -78,30 +84,58 @@ def send_message(to, message):
 
     try:
         response = requests.post(
-            url,
-            headers=headers,
-            json=payload,
-            timeout=20
+            url, headers=headers, json=payload, timeout=20
         )
-
-        print(
-            "WhatsApp API:",
-            response.status_code,
-            response.text
-        )
-
+        print("WhatsApp text API:", response.status_code, response.text)
     except requests.RequestException as error:
         print("Send error:", error)
 
 
+def send_image(to, image_url, caption=""):
+    """Send a WhatsApp image."""
+    if not WHATSAPP_TOKEN or not PHONE_NUMBER_ID:
+        print("Missing WhatsApp API credentials.")
+        return False
+
+    url = (
+        f"https://graph.facebook.com/"
+        f"{GRAPH_API_VERSION}/{PHONE_NUMBER_ID}/messages"
+    )
+
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    image_data = {"link": image_url}
+    if caption:
+        image_data["caption"] = caption
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "image",
+        "image": image_data
+    }
+
+    try:
+        response = requests.post(
+            url, headers=headers, json=payload, timeout=20
+        )
+        print("WhatsApp image API:", response.status_code, response.text)
+        return response.ok
+    except requests.RequestException as error:
+        print("Image send error:", error)
+        return False
+
+
 def make_menu():
     """Build the bot menu."""
-
     lines = ["🤖 COOL-BOY-XMD BOT MENU"]
 
     for category, commands in COMMANDS.items():
         lines.append(f"\n━━ {category} ━━")
-
         for command in commands:
             lines.append(f"{PREFIX}{command}")
 
@@ -115,14 +149,12 @@ def make_menu():
 
 def process_command(sender, text):
     """Recognize commands and run available handlers."""
-
     text = text.strip()
 
     if not text.startswith(PREFIX):
         return
 
     parts = text[len(PREFIX):].strip().split(maxsplit=1)
-
     if not parts:
         return
 
@@ -135,18 +167,12 @@ def process_command(sender, text):
 
     # Alive command
     if command == "ALIVE":
-        send_message(
-            sender,
-            "✅ Cool-boy-xmd bot is running."
-        )
+        send_message(sender, "✅ Cool-boy-xmd bot is running.")
         return
 
     # Owner command
     if command == "OWNER":
-        send_message(
-            sender,
-            f"👑 Owner: {OWNER_NUMBER}"
-        )
+        send_message(sender, f"👑 Owner: {OWNER_NUMBER}")
         return
 
     # Uptime command
@@ -161,8 +187,9 @@ def process_command(sender, text):
         )
         return
 
-    # Menu commands
+    # Menu commands: send image first, then menu text
     if command in ("MENU", "GMENU", "FUNMENU", "HELP"):
+        send_image(sender, MENU_IMAGE_URL)
         send_message(sender, make_menu())
         return
 
@@ -225,25 +252,4 @@ def webhook():
                     if message_type != "text":
                         continue
 
-                    text = message.get("text", {}).get("body", "")
-
-                    if sender and text:
-                        print(
-                            "Incoming message:",
-                            sender,
-                            text
-                        )
-
-                        process_command(sender, text)
-
-    except Exception as error:
-        print("Webhook processing error:", error)
-
-    return "EVENT_RECEIVED", 200
-
-
-if __name__ == "__main__":
-    app.run(
-        host="0.0.0.0",
-        port=int(os.getenv("PORT", "5000"))
-    )
+                    text = message.get("text", {}).get
