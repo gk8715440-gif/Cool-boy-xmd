@@ -1,1 +1,19 @@
-{ "name": "cool-boy-xmd", "version": "1.0.0", "description": "Cool-boy-xmd WhatsApp Bot", "type": "module", "main": "index.js", "scripts": { "start": "node index.js" }, "engines": { "node": "22.x" }, "dependencies "@whiskeysockets/baileys": "6.7.22", "express": "^4.21.2", "pino": "^9.6.0" }
+
+{
+  "name": "cool-boy-xmd",
+  "version": "1.0.0",
+  "description": "Cool-boy-xmd WhatsApp Bot",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "6.7.22",
+    "express": "^4.21.2",
+    "pino": "^9.6.0"
+  }
+}
