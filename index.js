@@ -1,17 +1,22 @@
+
 import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
   jidNormalizedUser
 } from '@whiskeysockets/baileys';
+
 import pino from 'pino';
 import express from 'express';
+
+const app = express();
 const PORT = Number(process.env.PORT) || 10000;
 const PHONE_NUMBER = (process.env.PHONE_NUMBER || '').replace(/\D/g, '');
 const OWNER_NUMBER = (process.env.OWNER_NUMBER || '').replace(/\D/g, '');
 const PREFIX = process.env.PREFIX || '.';
 const BOT_NAME = process.env.BOT_NAME || 'Cool-boy-xmd';
 const AUTH_DIR = process.env.AUTH_DIR || './auth_info_baileys';
+
 const MENU_IMAGE = process.env.MENU_IMAGE ||
   'https://raw.githubusercontent.com/gk8715440-gif/Cool-boy-xmd/main/file_00000000befc7209aec871aa090da284.png';
 
