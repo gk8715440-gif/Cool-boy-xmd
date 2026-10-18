@@ -16,7 +16,7 @@ const PHONE = (process.env.PHONE_NUMBER || '').replace(/\D/g, '');
 const OWNER = (process.env.OWNER_NUMBER || '').replace(/\D/g, '');
 const PREFIX = process.env.PREFIX || '.';
 const NAME = process.env.BOT_NAME || 'Cool-boy-xmd';
-const AUTH = process.env.AUTH_DIR || './auth_info_baileys';
+const AUTH = process.env.AUTH_DIR || './auth_info_baileys_v2';
 const logger = pino({ level: 'silent' });
 
 let sock;
