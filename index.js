@@ -1,11 +1,13 @@
 
-import makeWASocket, {
+import * as baileys from '@whiskeysockets/baileys';
+
+const makeWASocket = baileys.default || baileys.makeWASocket;
+const {
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
   jidNormalizedUser
-} from '@whiskeysockets/baileys';
-
+} = baileys;
 import pino from 'pino';
 import express from 'express';
 
