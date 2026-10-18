@@ -8,10 +8,12 @@ import {
 } from './settings.js';
 
 export function createCommandHandler({ getSock, groupSettings }) {
+
   function getUptime() {
     const seconds = Math.floor((Date.now() - START_TIME) / 1000);
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
+
     return `${hours}h ${minutes}m ${seconds % 60}s`;
   }
 
@@ -46,8 +48,10 @@ export function createCommandHandler({ getSock, groupSettings }) {
       p => jidNormalizedUser(p.id) === normalized
     );
 
-    return participant?.admin === 'admin' ||
-      participant?.admin === 'superadmin';
+    return (
+      participant?.admin === 'admin' ||
+      participant?.admin === 'superadmin'
+    );
   }
 
   async function isBotAdmin(sock, groupId) {
@@ -61,11 +65,14 @@ export function createCommandHandler({ getSock, groupSettings }) {
       p => jidNormalizedUser(p.id) === botJid
     );
 
-    return participant?.admin === 'admin' ||
-      participant?.admin === 'superadmin';
+    return (
+      participant?.admin === 'admin' ||
+      participant?.admin === 'superadmin'
+    );
   }
 
   return async function processCommand(sender, messageText, message) {
+
     const sock = getSock();
 
     if (!sock || !messageText) return;
@@ -85,8 +92,12 @@ export function createCommandHandler({ getSock, groupSettings }) {
     if (!command) return;
 
     const isGroup = sender.endsWith('@g.us');
-    const senderJid = message.key.participant || sender;
-    const senderNumber = getNumber(senderJid);
+
+    const senderJid =
+      message.key.participant || sender;
+
+    const senderNumber =
+      getNumber(senderJid);
 
     const isOwner =
       OWNER_NUMBER !== '' &&
@@ -102,7 +113,10 @@ export function createCommandHandler({ getSock, groupSettings }) {
 
     const requireGroup = async () => {
       if (!isGroup) {
-        await reply('❌ এই কমান্ড শুধু গ্রুপে ব্যবহার করা যাবে।');
+        await reply(
+          '❌ এই কমান্ড শুধু গ্রুপে ব্যবহার করা যাবে।'
+        );
+
         return false;
       }
 
@@ -114,29 +128,46 @@ export function createCommandHandler({ getSock, groupSettings }) {
 
       if (
         !isOwner &&
-        !(await isGroupAdmin(sock, sender, senderJid))
+        !(await isGroupAdmin(
+          sock,
+          sender,
+          senderJid
+        ))
       ) {
-        await reply('❌ এই কমান্ডের জন্য গ্রুপ অ্যাডমিন হতে হবে।');
+        await reply(
+          '❌ এই কমান্ডের জন্য গ্রুপ অ্যাডমিন হতে হবে।'
+        );
+
         return false;
       }
 
       return true;
     };
 
+    // =========================
     // MENU
+    // =========================
+
     if (['menu', 'help'].includes(command)) {
+
       try {
         await sock.sendMessage(
           sender,
           {
-            image: { url: MENU_IMAGE },
+            image: {
+              url: MENU_IMAGE
+            },
+
             caption:
               `👑 ${BOT_NAME}\n` +
               `🤖 WhatsApp Bot Menu\n` +
               `Prefix: ${PREFIX}`
           },
-          { quoted: message }
+          {
+            quoted: message
+          }
         );
+
       } catch (error) {
         console.error(
           'Menu image error:',
@@ -145,36 +176,62 @@ export function createCommandHandler({ getSock, groupSettings }) {
       }
 
       await reply(menu);
+
       return;
     }
 
+    // =========================
     // PING
+    // =========================
+
     if (command === 'ping') {
-      await reply('🏓 Pong! Bot is running.');
+
+      await reply(
+        '🏓 Pong! Bot is running.'
+      );
+
       return;
     }
 
+    // =========================
     // ALIVE
+    // =========================
+
     if (command === 'alive') {
+
       await reply(
         `✅ ${BOT_NAME} is alive!\n` +
         `⏱️ Uptime: ${getUptime()}`
       );
+
       return;
     }
 
+    // =========================
     // UPTIME
+    // =========================
+
     if (command === 'uptime') {
-      await reply(`⏱️ Uptime: ${getUptime()}`);
+
+      await reply(
+        `⏱️ Uptime: ${getUptime()}`
+      );
+
       return;
     }
 
+    // =========================
     // OWNER
+    // =========================
+
     if (['owner', 'setowner'].includes(command)) {
+
       if (command === 'setowner' && !isOwner) {
+
         await reply(
           '❌ শুধু বট Owner এই কমান্ড ব্যবহার করতে পারবেন।'
         );
+
         return;
       }
 
@@ -187,62 +244,110 @@ export function createCommandHandler({ getSock, groupSettings }) {
       return;
     }
 
+    // =========================
     // GITHUB
+    // =========================
+
     if (command === 'github') {
+
       await reply(
         'GitHub Repository:\n' +
         'https://github.com/gk8715440-gif/Cool-boy-xmd'
       );
+
       return;
     }
 
+    // =========================
     // JID
-    if (['mee', 'jid', 'gjid'].includes(command)) {
+    // =========================
+
+    if (
+      ['mee', 'jid', 'gjid'].includes(command)
+    ) {
+
       await reply(
         `Your JID: ${senderJid}\n` +
-        `Group: ${isGroup ? sender : 'Private chat'}`
+        `Group: ${
+          isGroup
+            ? sender
+            : 'Private chat'
+        }`
       );
+
       return;
     }
 
+    // =========================
     // INFO
+    // =========================
+
     if (command === 'info') {
+
       await reply(
         `🤖 ${BOT_NAME}\n` +
         `Prefix: ${PREFIX}\n` +
         `Uptime: ${getUptime()}`
       );
+
       return;
     }
 
+    // =========================
     // PREFIX
+    // =========================
+
     if (command === 'prefix') {
-      await reply(`বর্তমান Prefix: ${PREFIX}`);
+
+      await reply(
+        `বর্তমান Prefix: ${PREFIX}`
+      );
+
       return;
     }
 
+    // =========================
     // BOT NAME
+    // =========================
+
     if (command === 'botname') {
-      await reply(`Bot name: ${BOT_NAME}`);
+
+      await reply(
+        `Bot name: ${BOT_NAME}`
+      );
+
       return;
     }
 
+    // =========================
     // BOT IMAGE
+    // =========================
+
     if (command === 'bot_image') {
+
       await reply(
         `Menu image URL:\n${MENU_IMAGE}`
       );
+
       return;
     }
 
+    // =========================
     // SETTINGS
+    // =========================
+
     if (command === 'settings') {
+
       if (!isGroup) {
+
         await reply(
           `Bot settings\n` +
           `Prefix: ${PREFIX}\n` +
-          `Owner: ${OWNER_NUMBER || 'Not configured'}`
+          `Owner: ${
+            OWNER_NUMBER || 'Not configured'
+          }`
         );
+
         return;
       }
 
@@ -250,39 +355,63 @@ export function createCommandHandler({ getSock, groupSettings }) {
 
       await reply(
         `⚙️ Group Settings\n` +
-        `Anti-link: ${s.antilink ? 'ON' : 'OFF'}\n` +
-        `Welcome: ${s.welcome ? 'ON' : 'OFF'}\n` +
-        `Goodbye: ${s.goodbye ? 'ON' : 'OFF'}`
+        `Anti-link: ${
+          s.antilink ? 'ON' : 'OFF'
+        }\n` +
+        `Welcome: ${
+          s.welcome ? 'ON' : 'OFF'
+        }\n` +
+        `Goodbye: ${
+          s.goodbye ? 'ON' : 'OFF'
+        }`
       );
 
       return;
     }
 
+    // =========================
     // GROUP INFO
+    // =========================
+
     if (command === 'groupinfo') {
+
       if (!(await requireGroup())) return;
 
       const metadata =
-        await getGroupInfo(sock, sender);
+        await getGroupInfo(
+          sock,
+          sender
+        );
 
       await reply(
         `📋 Group: ${metadata.subject}\n` +
-        `👥 Members: ${metadata.participants.length}\n` +
+        `👥 Members: ${
+          metadata.participants.length
+        }\n` +
         `🆔 JID: ${sender}`
       );
 
       return;
     }
 
+    // =========================
     // ADMINS
+    // =========================
+
     if (command === 'admins') {
+
       if (!(await requireGroup())) return;
 
       const metadata =
-        await getGroupInfo(sock, sender);
+        await getGroupInfo(
+          sock,
+          sender
+        );
 
       const admins =
-        metadata.participants.filter(p => p.admin);
+        metadata.participants.filter(
+          p => p.admin
+        );
 
       await sock.sendMessage(
         sender,
@@ -290,48 +419,79 @@ export function createCommandHandler({ getSock, groupSettings }) {
           text:
             '👑 Group Admins\n\n' +
             admins
-              .map(p => `@${getNumber(p.id)}`)
+              .map(
+                p => `@${getNumber(p.id)}`
+              )
               .join('\n'),
-          mentions: admins.map(p => p.id)
+
+          mentions:
+            admins.map(p => p.id)
         },
-        { quoted: message }
+        {
+          quoted: message
+        }
       );
 
       return;
     }
 
+    // =========================
     // TAG ALL
+    // =========================
+
     if (
-      ['tagall', 'tag', 'mention'].includes(command)
+      ['tagall', 'tag', 'mention']
+        .includes(command)
     ) {
+
       if (!(await requireAdmin())) return;
 
       const metadata =
-        await getGroupInfo(sock, sender);
+        await getGroupInfo(
+          sock,
+          sender
+        );
 
       const mentions =
-        metadata.participants.map(p => p.id);
+        metadata.participants.map(
+          p => p.id
+        );
 
       await sock.sendMessage(
         sender,
         {
           text:
-            `📢 ${args.join(' ') || 'Attention everyone!'}\n\n` +
+            `📢 ${
+              args.join(' ') ||
+              'Attention everyone!'
+            }\n\n` +
+
             mentions
-              .map(jid => `@${getNumber(jid)}`)
+              .map(
+                jid =>
+                  `@${getNumber(jid)}`
+              )
               .join('\n'),
+
           mentions
         },
-        { quoted: message }
+        {
+          quoted: message
+        }
       );
 
       return;
     }
 
+    // =========================
     // KICK / PROMOTE / DEMOTE
+    // =========================
+
     if (
-      ['kick', 'promote', 'demote'].includes(command)
+      ['kick', 'promote', 'demote']
+        .includes(command)
     ) {
+
       if (!(await requireAdmin())) return;
 
       const mentioned =
@@ -341,16 +501,25 @@ export function createCommandHandler({ getSock, groupSettings }) {
           ?.mentionedJid || [];
 
       if (!mentioned.length) {
+
         await reply(
           `ব্যবহার: .${command} @mention`
         );
+
         return;
       }
 
-      if (!(await isBotAdmin(sock, sender))) {
+      if (
+        !(await isBotAdmin(
+          sock,
+          sender
+        ))
+      ) {
+
         await reply(
           '❌ Bot-কে আগে গ্রুপ Admin বানাও।'
         );
+
         return;
       }
 
@@ -374,14 +543,27 @@ export function createCommandHandler({ getSock, groupSettings }) {
       return;
     }
 
+    // =========================
     // OPEN / CLOSE
-    if (['open', 'close'].includes(command)) {
+    // =========================
+
+    if (
+      ['open', 'close'].includes(command)
+    ) {
+
       if (!(await requireAdmin())) return;
 
-      if (!(await isBotAdmin(sock, sender))) {
+      if (
+        !(await isBotAdmin(
+          sock,
+          sender
+        ))
+      ) {
+
         await reply(
           '❌ Bot-কে গ্রুপ Admin বানাতে হবে।'
         );
+
         return;
       }
 
@@ -401,29 +583,40 @@ export function createCommandHandler({ getSock, groupSettings }) {
       return;
     }
 
+    // =========================
     // SET NAME / DESCRIPTION
+    // =========================
+
     if (
-      ['setname', 'setdesc'].includes(command)
+      ['setname', 'setdesc']
+        .includes(command)
     ) {
+
       if (!(await requireAdmin())) return;
 
-      const value = args.join(' ');
+      const value =
+        args.join(' ');
 
       if (!value) {
+
         await reply(
           command === 'setname'
             ? 'ব্যবহার: .setname নতুন গ্রুপের নাম'
             : 'ব্যবহার: .setdesc নতুন বিবরণ'
         );
+
         return;
       }
 
       if (command === 'setname') {
+
         await sock.groupUpdateSubject(
           sender,
           value
         );
+
       } else {
+
         await sock.groupUpdateDescription(
           sender,
           value
@@ -437,34 +630,62 @@ export function createCommandHandler({ getSock, groupSettings }) {
       return;
     }
 
+    // =========================
     // ANTILINK
+    // =========================
+
     if (command === 'antilink') {
+
       if (!(await requireAdmin())) return;
 
-      const s = getSettings(sender);
-      const option =
-        (args[0] || '').toLowerCase();
+      const s =
+        getSettings(sender);
 
-      if (!['on', 'off'].includes(option)) {
+      const option =
+        (args[0] || '')
+          .toLowerCase();
+
+      if (
+        !['on', 'off']
+          .includes(option)
+      ) {
+
         await reply(
-          `Anti-link: ${s.antilink ? 'ON' : 'OFF'}\n` +
+          `Anti-link: ${
+            s.antilink
+              ? 'ON'
+              : 'OFF'
+          }\n` +
           `চালু: .antilink on\n` +
           `বন্ধ: .antilink off`
         );
+
         return;
       }
 
-      s.antilink = option === 'on';
+      s.antilink =
+        option === 'on';
 
       await reply(
-        `✅ Anti-link ${s.antilink ? 'ON' : 'OFF'} করা হয়েছে।`
+        `✅ Anti-link ${
+          s.antilink
+            ? 'ON'
+            : 'OFF'
+        } করা হয়েছে।`
       );
 
       return;
     }
 
+    // =========================
     // DELETE
-    if (['delete', 'del'].includes(command)) {
+    // =========================
+
+    if (
+      ['delete', 'del']
+        .includes(command)
+    ) {
+
       if (!(await requireAdmin())) return;
 
       const quoted =
@@ -476,16 +697,25 @@ export function createCommandHandler({ getSock, groupSettings }) {
         !quoted?.stanzaId ||
         !quoted?.participant
       ) {
+
         await reply(
           'যে মেসেজ মুছতে চাও সেটিতে Reply করে .delete লেখো।'
         );
+
         return;
       }
 
-      if (!(await isBotAdmin(sock, sender))) {
+      if (
+        !(await isBotAdmin(
+          sock,
+          sender
+        ))
+      ) {
+
         await reply(
           '❌ Bot-কে গ্রুপ Admin বানাও।'
         );
+
         return;
       }
 
@@ -496,7 +726,8 @@ export function createCommandHandler({ getSock, groupSettings }) {
             remoteJid: sender,
             fromMe: false,
             id: quoted.stanzaId,
-            participant: quoted.participant
+            participant:
+              quoted.participant
           }
         }
       );
@@ -504,13 +735,129 @@ export function createCommandHandler({ getSock, groupSettings }) {
       return;
     }
 
+    // =========================
+    // YOUTUBE PLAY / SONG
+    // =========================
+
+    if (
+      command === 'play' ||
+      command === 'song'
+    ) {
+
+      const songName =
+        args.join(' ').trim();
+
+      if (!songName) {
+
+        await reply(
+          `👉 ব্যবহার: ${PREFIX}${command} গানের নাম`
+        );
+
+        return;
+      }
+
+      const apiKey =
+        process.env.YOUTUBE_API_KEY;
+
+      if (!apiKey) {
+
+        await reply(
+          '❌ YOUTUBE_API_KEY Render Environment Variables-এ সেট করা নেই।'
+        );
+
+        return;
+      }
+
+      try {
+
+        const params =
+          new URLSearchParams({
+            part: 'snippet',
+            q: songName,
+            key: apiKey,
+            maxResults: '1',
+            type: 'video'
+          });
+
+        const response =
+          await fetch(
+            `https://www.googleapis.com/youtube/v3/search?${params.toString()}`
+          );
+
+        if (!response.ok) {
+
+          const errorText =
+            await response.text();
+
+          console.error(
+            'YouTube API error:',
+            errorText
+          );
+
+          await reply(
+            '❌ YouTube search করতে সমস্যা হয়েছে। API key বা API settings চেক করো।'
+          );
+
+          return;
+        }
+
+        const data =
+          await response.json();
+
+        const video =
+          data.items?.[0];
+
+        if (
+          !video?.id?.videoId
+        ) {
+
+          await reply(
+            `❌ "${songName}" গানটি খুঁজে পাওয়া যায়নি।`
+          );
+
+          return;
+        }
+
+        const title =
+          video.snippet?.title ||
+          songName;
+
+        const channel =
+          video.snippet?.channelTitle ||
+          '';
+
+        const videoUrl =
+          `https://www.youtube.com/watch?v=${video.id.videoId}`;
+
+        await reply(
+          `🎵 ${title}\n` +
+          `📺 ${channel}\n\n` +
+          `▶️ YouTube:\n${videoUrl}`
+        );
+
+      } catch (error) {
+
+        console.error(
+          'YouTube search error:',
+          error
+        );
+
+        await reply(
+          '❌ গান খুঁজতে সমস্যা হয়েছে। কিছুক্ষণ পরে আবার চেষ্টা করো।'
+        );
+      }
+
+      return;
+    }
+
+    // =========================
     // COMMANDS NOT YET INTEGRATED
+    // =========================
+
     const needsIntegration = [
       'pair',
       'csong',
       'lyrics',
-      'play',
-      'song',
       'fb',
       'insta',
       'pinterest',
@@ -590,15 +937,22 @@ export function createCommandHandler({ getSock, groupSettings }) {
       'greact'
     ];
 
-    if (needsIntegration.includes(command)) {
+    if (
+      needsIntegration.includes(command)
+    ) {
+
       await reply(
         `⚠️ .${command} কমান্ডের নাম মেনুতে আছে, ` +
         `কিন্তু এর কার্যকর ফিচার এখনও যোগ করা হয়নি।`
       );
+
       return;
     }
 
+    // =========================
     // UNKNOWN COMMAND
+    // =========================
+
     await reply(
       `❓ অজানা কমান্ড: ${PREFIX}${command}\n` +
       `সব কমান্ড দেখতে .menu লেখো।`
