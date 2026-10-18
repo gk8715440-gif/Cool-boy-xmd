@@ -402,3 +402,165 @@ process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
 startBot();
+
+async function startBot() {
+  if (starting || stopping) return;
+
+  starting = true;
+  clearTimeout(reconnectTimer);
+
+  try {
+    if (!PHONE_NUMBER) {
+      console.error(
+        'ERROR: Set PHONE_NUMBER in Render Environment.'
+      );
+      starting = false;
+      return;
+    }
+
+    const { state, saveCreds } =
+      await useMultiFileAuthState(AUTH_DIR);
+
+    const { version, isLatest } =
+      await fetchLatestBaileysVersion();
+
+    console.log(
+      'Baileys Web version:',
+      version.join('.'),
+      'isLatest:',
+      isLatest
+    );
+
+    const currentSock = makeWASocket({
+      version,
+      auth: state,
+      logger,
+      markOnlineOnConnect: false,
+      syncFullHistory: false,
+      connectTimeoutMs: 60000,
+      defaultQueryTimeoutMs: 60000
+    });
+
+    sock = currentSock;
+    pairingRequestedForSocket = false;
+
+    let connectionClosed = false;
+    let pairingTimer;
+
+    currentSock.ev.on('creds.update', saveCreds);
+
+    // Request the pairing code only after socket initialization.
+    if (!state.creds.registered) {
+      pairingTimer = setTimeout(async () => {
+        if (
+          stopping ||
+          connectionClosed ||
+          currentSock !== sock ||
+          pairingRequestedForSocket
+        ) {
+          return;
+        }
+
+        pairingRequestedForSocket = true;
+
+        try {
+          const code =
+            await currentSock.requestPairingCode(PHONE_NUMBER);
+
+          console.log('================================');
+          console.log('WHATSAPP PAIRING CODE:', code);
+          console.log(
+            'WhatsApp > Linked devices > Link a device > ' +
+            'Link with phone number instead'
+          );
+          console.log('================================');
+        } catch (error) {
+          pairingRequestedForSocket = false;
+
+          console.error(
+            'Pairing code request failed:',
+            error?.message || error
+          );
+        }
+      }, 5000);
+    }
+
+    currentSock.ev.on(
+      'connection.update',
+      async ({ connection, lastDisconnect }) => {
+        if (connection === 'open') {
+          clearTimeout(pairingTimer);
+          reconnectAttempts = 0;
+          pairingRequestedForSocket = false;
+
+          console.log('WhatsApp connected successfully!');
+        }
+
+        if (connection === 'close') {
+          connectionClosed = true;
+          clearTimeout(pairingTimer);
+
+          const statusCode =
+            lastDisconnect?.error?.output?.statusCode;
+
+          console.error(
+            'WhatsApp disconnected:',
+            statusCode ?? 'unknown',
+            lastDisconnect?.error?.message || ''
+          );
+
+          if (stopping || currentSock !== sock) return;
+
+          if (statusCode === DisconnectReason.loggedOut) {
+            console.error(
+              'WhatsApp logged out (401). ' +
+              'Check the saved session and pair again if needed.'
+            );
+            return;
+          }
+
+          reconnectAttempts++;
+
+          const delay =
+            statusCode === DisconnectReason.restartRequired
+              ? 1000
+              : Math.min(5000 * reconnectAttempts, 30000);
+
+          console.log(`Reconnecting in ${delay}ms...`);
+
+          clearTimeout(reconnectTimer);
+
+          reconnectTimer = setTimeout(() => {
+            if (!stopping) startBot();
+          }, delay);
+        }
+      }
+    );
+
+    currentSock.ev.on(
+      'messages.upsert',
+      ({ messages, type }) => {
+        handleMessages(messages, type).catch(error => {
+          console.error(
+            'Message event failed:',
+            error?.message || error
+          );
+        });
+      }
+    );
+  } catch (error) {
+    console.error(
+      'Bot startup failed:',
+      error?.stack || error
+    );
+
+    reconnectAttempts++;
+    clearTimeout(reconnectTimer);
+
+    reconnectTimer = setTimeout(() => {
+      if (!stopping) startBot();
+    }, Math.min(5000 * reconnectAttempts, 30000));
+  } finally {
+    starting = false;
+  }
+}
