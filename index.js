@@ -9,6 +9,7 @@ import {
 
 import pino from 'pino';
 import express from 'express';
+import { rm } from 'node:fs/promises';
 
 // ================= CONFIG =================
 
@@ -26,6 +27,7 @@ let starting = false;
 let retries = 0;
 let reconnectTimer;
 let pairingRequested = false;
+let resettingAuth = false;
 
 const startedAt = Date.now();
 let mode = 'public';
@@ -203,7 +205,6 @@ async function handleCommand(m) {
 
   const adminOnly = async () => {
     if (!(await groupOnly())) return false;
-
     if (!isOwner(sender) && !(await isAdmin(jid, sender))) {
       await reply('❌ এই কমান্ডের জন্য গ্রুপ Admin হতে হবে।');
       return false;
@@ -225,8 +226,11 @@ async function handleCommand(m) {
     'owner', 'github', 'mode'
   ];
 
-  if (mode === 'private' && !isOwner(sender) &&
-      !allowed.includes(cmd)) {
+  if (
+    mode === 'private' &&
+    !isOwner(sender) &&
+    !allowed.includes(cmd)
+  ) {
     return reply('🔒 Bot Private Mode-এ আছে।');
   }
 
@@ -248,9 +252,7 @@ async function handleCommand(m) {
         return reply(`⏱️ ${uptime()}`);
 
       case 'info':
-        return reply(
-          `${NAME}\nPrefix: ${PREFIX}\nMode: ${mode}`
-        );
+        return reply(`${NAME}\nPrefix: ${PREFIX}\nMode: ${mode}`);
 
       case 'owner':
         return reply(
@@ -270,7 +272,6 @@ async function handleCommand(m) {
 
       case 'settings': {
         const settings = isGroup(jid) ? getSettings(jid) : null;
-
         return reply(
           `Mode: ${mode}\nAuto-read: ${autoread ? 'ON' : 'OFF'}` +
           (settings
@@ -300,16 +301,13 @@ async function handleCommand(m) {
       case 'groupinfo': {
         if (!(await groupOnly())) return;
         const g = await sock.groupMetadata(jid);
-        return reply(
-          `📋 ${g.subject}\nMembers: ${g.participants.length}`
-        );
+        return reply(`📋 ${g.subject}\nMembers: ${g.participants.length}`);
       }
 
       case 'admins': {
         if (!(await groupOnly())) return;
         const g = await sock.groupMetadata(jid);
         const admins = g.participants.filter(p => p.admin);
-
         return sock.sendMessage(jid, {
           text: '👑 Admins:\n' +
             admins.map(p => `@${numberOf(p.id)}`).join('\n'),
@@ -320,11 +318,9 @@ async function handleCommand(m) {
       case 'tagall':
       case 'hidetag': {
         if (!(await adminOnly())) return;
-
         const g = await sock.groupMetadata(jid);
         const members = g.participants.map(p => p.id);
         const tags = members.map(p => `@${numberOf(p)}`).join(' ');
-
         return sock.sendMessage(jid, {
           text: cmd === 'hidetag'
             ? (text || '📢 Attention everyone!')
@@ -340,20 +336,14 @@ async function handleCommand(m) {
         if (!(await botIsAdmin(jid))) {
           return reply('❌ Bot-কে প্রথমে গ্রুপ Admin বানাও।');
         }
-
         const targets =
           m.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
-
-        if (!targets.length) {
-          return reply(`ব্যবহার: ${PREFIX}${cmd} @user`);
-        }
-
+        if (!targets.length) return reply(`ব্যবহার: ${PREFIX}${cmd} @user`);
         const action = {
           kick: 'remove',
           promote: 'promote',
           demote: 'demote'
         }[cmd];
-
         await sock.groupParticipantsUpdate(jid, targets, action);
         return reply('✅ Group command সম্পন্ন হয়েছে।');
       }
@@ -364,15 +354,11 @@ async function handleCommand(m) {
         if (!(await botIsAdmin(jid))) {
           return reply('❌ Bot-কে গ্রুপ Admin বানাও।');
         }
-
         await sock.groupSettingUpdate(
           jid,
           cmd === 'open' ? 'not_announcement' : 'announcement'
         );
-
-        return reply(
-          cmd === 'open' ? '🔓 Group opened.' : '🔒 Group closed.'
-        );
+        return reply(cmd === 'open' ? '🔓 Group opened.' : '🔒 Group closed.');
       }
 
       case 'setname':
@@ -381,16 +367,12 @@ async function handleCommand(m) {
         if (!(await botIsAdmin(jid))) {
           return reply('❌ Bot-কে গ্রুপ Admin বানাও।');
         }
-        if (!text) {
-          return reply(`ব্যবহার: ${PREFIX}${cmd} নতুন লেখা`);
-        }
-
+        if (!text) return reply(`ব্যবহার: ${PREFIX}${cmd} নতুন লেখা`);
         if (cmd === 'setname') {
           await sock.groupUpdateSubject(jid, text);
         } else {
           await sock.groupUpdateDescription(jid, text);
         }
-
         return reply('✅ Group updated.');
       }
 
@@ -401,7 +383,6 @@ async function handleCommand(m) {
         if (!['on', 'off'].includes(args[0])) {
           return reply(`ব্যবহার: ${PREFIX}${cmd} on/off`);
         }
-
         getSettings(jid)[cmd] = args[0] === 'on';
         return reply(`✅ ${cmd}: ${args[0]}`);
       }
@@ -412,13 +393,10 @@ async function handleCommand(m) {
         if (!(await botIsAdmin(jid))) {
           return reply('❌ Bot-কে গ্রুপ Admin বানাও।');
         }
-
         const quoted = m.message?.extendedTextMessage?.contextInfo;
-
         if (!quoted?.stanzaId || !quoted?.participant) {
           return reply('কোনো মেসেজে Reply করে .delete লেখো।');
         }
-
         return sock.sendMessage(jid, {
           delete: {
             remoteJid: jid,
@@ -433,28 +411,19 @@ async function handleCommand(m) {
       case 'warns':
       case 'resetwarn': {
         if (!(await adminOnly())) return;
-
         const target =
           m.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-
-        if (!target) {
-          return reply(`ব্যবহার: ${PREFIX}${cmd} @user`);
-        }
-
+        if (!target) return reply(`ব্যবহার: ${PREFIX}${cmd} @user`);
         const key = `${jid}:${target}`;
-
         if (cmd === 'resetwarn') {
           warnings.delete(key);
           return reply('✅ Warning reset হয়েছে।');
         }
-
         if (cmd === 'warns') {
           return reply(`Warnings: ${warnings.get(key) || 0}`);
         }
-
         const count = (warnings.get(key) || 0) + 1;
         warnings.set(key, count);
-
         return sock.sendMessage(jid, {
           text: `⚠️ @${numberOf(target)} warning: ${count}`,
           mentions: [target]
@@ -481,9 +450,7 @@ async function handleCommand(m) {
         );
 
       default:
-        return reply(
-          `❓ Unknown command: ${PREFIX}${cmd}\n${PREFIX}menu লেখো।`
-        );
+        return reply(`❓ Unknown command: ${PREFIX}${cmd}\n${PREFIX}menu লেখো।`);
     }
   } catch (error) {
     console.error(`Command ${cmd}:`, error?.stack || error);
@@ -499,7 +466,6 @@ async function handleMessages(messages, type) {
   for (const m of messages || []) {
     try {
       if (!m?.message || m.key?.fromMe) continue;
-
       const jid = m.key?.remoteJid;
       if (!jid || jid === 'status@broadcast') continue;
 
@@ -510,7 +476,6 @@ async function handleMessages(messages, type) {
       }
 
       const body = getText(m);
-
       if (isGroup(jid) && body) {
         const settings = getSettings(jid);
         const sender = m.key.participant;
@@ -543,14 +508,15 @@ async function startBot() {
   clearTimeout(reconnectTimer);
 
   try {
-    if (!PHONE) {
+    if (!PHONE || PHONE.length < 10) {
       console.error(
-        'Render Environment-এ PHONE_NUMBER সেট করো (country code-সহ, শুধু সংখ্যা)।'
+        'PHONE_NUMBER ঠিক করো: country code-সহ শুধু সংখ্যা দিতে হবে।'
       );
       return;
     }
 
-    console.log('Baileys makeWASocket type:', typeof makeWASocket);
+    console.log('Starting Baileys...');
+    console.log('Phone number configured:', `...${PHONE.slice(-4)}`);
 
     const { state, saveCreds } = await useMultiFileAuthState(AUTH);
     const { version } = await fetchLatestBaileysVersion();
@@ -559,7 +525,6 @@ async function startBot() {
       version,
       auth: state,
       logger,
-      printQRInTerminal: false,
       markOnlineOnConnect: false,
       syncFullHistory: false,
       connectTimeoutMs: 60000,
@@ -568,7 +533,6 @@ async function startBot() {
 
     sock = currentSock;
     let closed = false;
-    let pairingTimer;
 
     currentSock.ev.on('creds.update', saveCreds);
 
@@ -576,10 +540,17 @@ async function startBot() {
       void handleMessages(messages, type);
     });
 
-    if (!state.creds.registered) {
-      pairingTimer = setTimeout(async () => {
-        if (closed || currentSock !== sock || pairingRequested) return;
+    currentSock.ev.on('connection.update', async update => {
+      const { connection, lastDisconnect, qr } = update;
 
+      // Pairing code: wait until the socket is ready.
+      if (
+        qr &&
+        !state.creds.registered &&
+        !pairingRequested &&
+        !closed &&
+        currentSock === sock
+      ) {
         pairingRequested = true;
 
         try {
@@ -592,51 +563,61 @@ async function startBot() {
           pairingRequested = false;
           console.error('Pairing code failed:', error?.stack || error);
         }
-      }, 5000);
-    }
+      }
 
-    currentSock.ev.on(
-      'connection.update',
-      ({ connection, lastDisconnect }) => {
-        if (connection === 'open') {
-          clearTimeout(pairingTimer);
-          retries = 0;
-          pairingRequested = false;
-          console.log('WhatsApp connected successfully!');
-        }
+      if (connection === 'open') {
+        closed = false;
+        retries = 0;
+        pairingRequested = false;
+        console.log('WhatsApp connected successfully!');
+      }
 
-        if (connection === 'close') {
-          closed = true;
-          clearTimeout(pairingTimer);
+      if (connection === 'close') {
+        closed = true;
+        pairingRequested = false;
 
-          const code =
-            lastDisconnect?.error?.output?.statusCode;
+        const code = lastDisconnect?.error?.output?.statusCode;
+        console.error('WhatsApp disconnected:', code || 'unknown');
 
-          console.error('WhatsApp disconnected:', code || 'unknown');
+        if (currentSock !== sock) return;
 
-          if (currentSock !== sock) return;
+        if (code === DisconnectReason.loggedOut) {
+          if (resettingAuth) return;
+          resettingAuth = true;
 
-          if (code === DisconnectReason.loggedOut) {
-            console.error(
-              'WhatsApp logged out. Session আবার pair করতে হবে।'
-            );
-            return;
+          console.error('Session logged out. Clearing old auth session...');
+
+          try {
+            await rm(AUTH, { recursive: true, force: true });
+            console.log('Old session cleared. A new pairing code will be requested.');
+          } catch (error) {
+            console.error('Could not clear auth session:', error?.message || error);
           }
 
-          retries++;
-          const delay = Math.min(retries * 5000, 30000);
-
+          pairingRequested = false;
           clearTimeout(reconnectTimer);
           reconnectTimer = setTimeout(() => {
+            resettingAuth = false;
             void startBot();
-          }, delay);
+          }, 3000);
+
+          return;
         }
+
+        retries++;
+        const delay = Math.min(retries * 5000, 30000);
+        console.log(`Reconnecting in ${delay / 1000} seconds...`);
+
+        clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(() => {
+          void startBot();
+        }, delay);
       }
-    );
+    });
   } catch (error) {
     console.error('Bot startup error:', error?.stack || error);
-
     retries++;
+    clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(() => {
       void startBot();
     }, Math.min(retries * 5000, 30000));
@@ -644,6 +625,8 @@ async function startBot() {
     starting = false;
   }
 }
+
+// ================= SHUTDOWN =================
 
 function shutdown() {
   clearTimeout(reconnectTimer);
