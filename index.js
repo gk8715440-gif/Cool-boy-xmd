@@ -6,8 +6,6 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import express from 'express';
-
-const app = express();
 const PORT = Number(process.env.PORT) || 10000;
 const PHONE_NUMBER = (process.env.PHONE_NUMBER || '').replace(/\D/g, '');
 const OWNER_NUMBER = (process.env.OWNER_NUMBER || '').replace(/\D/g, '');
