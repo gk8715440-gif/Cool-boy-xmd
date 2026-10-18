@@ -29,13 +29,15 @@ let reconnectAttempts = 0;
 
 const groupSettings = new Map();
 const warnings = new Map();
-const botSettings = { mode: 'public', autoread: false };
+// Default mode can be changed in Render Environment with BOT_MODE=public or BOT_MODE=private.
+const botSettings = {
+  mode: (process.env.BOT_MODE || 'public').toLowerCase() === 'private' ? 'private' : 'public',
+  autoread: false
+};
 
 app.get('/', (_req, res) => res.send(`${BOT_NAME} is running`));
 app.get('/health', (_req, res) => res.json({
-  ok: true,
-  bot: BOT_NAME,
-  connected: Boolean(sock?.user)
+  ok: true, bot: BOT_NAME, connected: Boolean(sock?.user), mode: botSettings.mode
 }));
 app.listen(PORT, '0.0.0.0', () => console.log(`${BOT_NAME} HTTP server on ${PORT}`));
 
@@ -59,16 +61,14 @@ const menu = () => `╭━━━〔 👑 ${BOT_NAME} 〕━━━╮
 ┃ ${PREFIX}mode public/private  ${PREFIX}autoread on/off
 ┃ ${PREFIX}restart
 ┃
-┃ 🎵 MEDIA / STICKER / AI
-┃ ${PREFIX}play  ${PREFIX}song  ${PREFIX}lyrics  ${PREFIX}fb
-┃ ${PREFIX}insta  ${PREFIX}tiktok  ${PREFIX}video
-┃ ${PREFIX}pinterest  ${PREFIX}gpt  ${PREFIX}sticker
-┃ ${PREFIX}toimg  ${PREFIX}tomp4  ${PREFIX}brat
-┃ ${PREFIX}fancy  ${PREFIX}styletext  ${PREFIX}weather
+┃ 🎵 MEDIA / AI / STICKER
+┃ ${PREFIX}play  ${PREFIX}song  ${PREFIX}fb  ${PREFIX}insta
+┃ ${PREFIX}tiktok  ${PREFIX}video  ${PREFIX}pinterest
+┃ ${PREFIX}gpt  ${PREFIX}sticker  ${PREFIX}toimg  ${PREFIX}weather
 ╰━━━━━━━━━━━━━━━━━━━━━━╯
-Prefix: ${PREFIX}
+Mode: ${botSettings.mode.toUpperCase()} | Prefix: ${PREFIX}
 
-⚠️ Media/AI commands need separate API integrations; they are not active in this build.`;
+⚠️ Media/AI commands need separate integrations; see bot replies.`;
 
 function textOf(message) {
   const m = message?.message;
@@ -99,10 +99,7 @@ function settings(jid) {
 }
 async function sendMenu(jid, quoted) {
   try {
-    await sock.sendMessage(jid, {
-      image: { url: MENU_IMAGE },
-      caption: menu()
-    }, { quoted });
+    await sock.sendMessage(jid, { image: { url: MENU_IMAGE }, caption: menu() }, { quoted });
   } catch (e) {
     console.error('Menu image failed:', e?.message || e);
     await sock.sendMessage(jid, { text: menu() }, { quoted });
@@ -137,10 +134,7 @@ async function runCommand(m) {
 
   const reply = t => sock.sendMessage(jid, { text: t }, { quoted: m });
   const groupOnly = async () => {
-    if (!isGroup(jid)) {
-      await reply('❌ এই কমান্ড শুধু গ্রুপে কাজ করে।');
-      return false;
-    }
+    if (!isGroup(jid)) { await reply('❌ এই কমান্ড শুধু গ্রুপে কাজ করে।'); return false; }
     return true;
   };
   const adminOnly = async () => {
@@ -152,15 +146,18 @@ async function runCommand(m) {
     return true;
   };
 
-  try {
-    if (botSettings.mode === 'private' && !owner(sender) &&
-        !['menu', 'help', 'ping', 'alive', 'owner', 'github', 'uptime', 'info'].includes(cmd)) return;
+  // Allow basic help and the Owner's mode command in either mode.
+  const alwaysAllowed = ['menu', 'help', 'ping', 'alive', 'owner', 'github', 'uptime', 'info', 'mode'];
+  if (botSettings.mode === 'private' && !owner(sender) && !alwaysAllowed.includes(cmd)) {
+    return reply('🔒 Bot এখন Private Mode-এ আছে। শুধু Owner কমান্ড ব্যবহার করতে পারবে।');
+  }
 
+  try {
     switch (cmd) {
       case 'menu': case 'help': case 'gmenu': case 'funmenu':
         await sendMenu(jid, m); return;
       case 'ping': return reply('🏓 Pong! Bot is online.');
-      case 'alive': return reply(`✅ ${BOT_NAME} is running\n⏱️ ${uptime()}`);
+      case 'alive': return reply(`✅ ${BOT_NAME} is running\n⏱️ ${uptime()}\nMode: ${botSettings.mode}`);
       case 'uptime': return reply(`⏱️ ${uptime()}`);
       case 'info': return reply(`🤖 ${BOT_NAME}\nPrefix: ${PREFIX}\nMode: ${botSettings.mode}\nUptime: ${uptime()}`);
       case 'owner': return reply(OWNER_NUMBER ? `👑 Owner: +${OWNER_NUMBER}` : 'OWNER_NUMBER Render Environment-এ সেট করা নেই।');
@@ -173,17 +170,33 @@ async function runCommand(m) {
         return reply(`Mode: ${botSettings.mode}\nAuto-read: ${botSettings.autoread ? 'ON' : 'OFF'}` +
           (s ? `\nAnti-link: ${s.antilink ? 'ON' : 'OFF'}\nWelcome: ${s.welcome ? 'ON' : 'OFF'}\nGoodbye: ${s.goodbye ? 'ON' : 'OFF'}` : ''));
       }
+
+      // OWNER-ONLY PUBLIC/PRIVATE SWITCH:
       case 'mode': {
-        if (!owner(sender)) return reply('❌ শুধু Owner ব্যবহার করতে পারবেন।');
-        const v = (tokens[0] || '').toLowerCase();
-        if (!['public', 'private'].includes(v)) return reply(`ব্যবহার: ${PREFIX}mode public অথবা ${PREFIX}mode private`);
-        botSettings.mode = v;
-        return reply(`✅ Mode: ${v}`);
+        if (!owner(sender)) {
+          return reply('❌ এই কমান্ড শুধু Owner ব্যবহার করতে পারবে।');
+        }
+        const requestedMode = (tokens[0] || '').toLowerCase();
+        if (!['public', 'private'].includes(requestedMode)) {
+          return reply(
+            '⚙️ Bot Mode\n\n' +
+            '.mode public — সবাই বট ব্যবহার করতে পারবে\n' +
+            '.mode private — শুধু Owner বট ব্যবহার করতে পারবে\n' +
+            `বর্তমান Mode: ${botSettings.mode}`
+          );
+        }
+        botSettings.mode = requestedMode;
+        return reply(
+          requestedMode === 'public'
+            ? '✅ Public Mode চালু হয়েছে। এখন সবাই বটের কমান্ড ব্যবহার করতে পারবে।'
+            : '🔒 Private Mode চালু হয়েছে। এখন শুধু Owner বটের কমান্ড ব্যবহার করতে পারবে।'
+        );
       }
+
       case 'autoread': {
         if (!owner(sender)) return reply('❌ শুধু Owner ব্যবহার করতে পারবেন।');
         const v = (tokens[0] || '').toLowerCase();
-        if (!['on', 'off'].includes(v)) return reply(`ব্যবহার: ${PREFIX}autoread on/off`);
+        if (!['on', 'off'].includes(v)) return reply('ব্যবহার: .autoread on/off');
         botSettings.autoread = v === 'on';
         return reply(`✅ Autoread: ${v}`);
       }
@@ -206,9 +219,7 @@ async function runCommand(m) {
         const g = await sock.groupMetadata(jid);
         const all = g.participants.map(p => p.id);
         const names = all.map(x => `@${numberOf(x)}`).join(' ');
-        const messageText = cmd === 'hidetag'
-          ? (arg || '📢 Attention everyone!')
-          : `${arg || '📢 Attention everyone!'}\n${names}`;
+        const messageText = cmd === 'hidetag' ? (arg || '📢 Attention everyone!') : `${arg || '📢 Attention everyone!'}\n${names}`;
         return sock.sendMessage(jid, { text: messageText, mentions: all }, { quoted: m });
       }
       case 'kick': case 'promote': case 'demote': {
@@ -243,33 +254,25 @@ async function runCommand(m) {
         const s = settings(jid);
         if (!['on', 'off'].includes(v)) return reply(`${cmd}: ${s[cmd] ? 'ON' : 'OFF'}\nব্যবহার: ${PREFIX}${cmd} on/off`);
         s[cmd] = v === 'on';
-        return reply(`✅ ${cmd}: ${v}\nনোট: এই সংস্করণে সেটিংগুলো RAM-এ থাকে, restart হলে reset হবে।`);
+        return reply(`✅ ${cmd}: ${v}\nনোট: এই সেটিংগুলো RAM-এ থাকে; restart হলে reset হবে।`);
       }
       case 'delete': case 'del': {
         if (!(await adminOnly())) return;
         if (!(await botAdmin(jid))) return reply('❌ Bot-কে গ্রুপ Admin বানাও।');
         const q = contextOf(m);
         if (!q?.stanzaId || !q?.participant) return reply('যে মেসেজ মুছবে সেটিতে Reply করে .delete লেখো।');
-        return sock.sendMessage(jid, {
-          delete: { remoteJid: jid, fromMe: false, id: q.stanzaId, participant: q.participant }
-        });
+        return sock.sendMessage(jid, { delete: { remoteJid: jid, fromMe: false, id: q.stanzaId, participant: q.participant } });
       }
       case 'warn': case 'warns': case 'resetwarn': {
         if (!(await adminOnly())) return;
         const target = mentionsOf(m)[0];
         if (!target) return reply(`ব্যবহার: ${PREFIX}${cmd} @user`);
         const key = `${jid}:${target}`;
-        if (cmd === 'resetwarn') {
-          warnings.delete(key);
-          return reply('✅ Warning reset হয়েছে।');
-        }
+        if (cmd === 'resetwarn') { warnings.delete(key); return reply('✅ Warning reset হয়েছে।'); }
         if (cmd === 'warn') {
           const n = (warnings.get(key) || 0) + 1;
           warnings.set(key, n);
-          return sock.sendMessage(jid, {
-            text: `⚠️ @${numberOf(target)} warning count: ${n}`,
-            mentions: [target]
-          }, { quoted: m });
+          return sock.sendMessage(jid, { text: `⚠️ @${numberOf(target)} warning count: ${n}`, mentions: [target] }, { quoted: m });
         }
         return reply(`⚠️ Warning count: ${warnings.get(key) || 0}`);
       }
@@ -278,18 +281,13 @@ async function runCommand(m) {
         const g = await sock.groupMetadata(jid);
         return reply(`Group: ${g.subject}\nMembers: ${g.participants.length}\nAdmins: ${g.participants.filter(p => p.admin).length}`);
       }
-      case 'setowner': return reply('OWNER_NUMBER Render Environment-এ সেট করে redeploy করো।');
-      case 'setprefix': return reply('PREFIX Render Environment variable বদলে redeploy করো।');
       case 'restart':
         if (!owner(sender)) return reply('❌ শুধু Owner ব্যবহার করতে পারবেন।');
         return reply('Render Dashboard থেকে service restart করো।');
       case 'kickall': return reply('নিরাপত্তার জন্য bulk kick চালু করা হয়নি; .kick @user ব্যবহার করো।');
-      case 'broadcast':
-        if (!owner(sender)) return reply('❌ শুধু Owner ব্যবহার করতে পারবেন।');
-        return reply('Broadcast এই সংস্করণে চালু নেই।');
-      case 'song': case 'play': case 'csong': case 'lyrics': case 'spotify':
-      case 'fb': case 'insta': case 'tiktok': case 'ytmp4': case 'video': case 'pinterest':
-      case 'gpt': case 'image': case 'weather': case 'sticker': case 'toimg': case 'tomp4':
+      case 'play': case 'song': case 'lyrics': case 'spotify': case 'fb': case 'insta':
+      case 'tiktok': case 'ytmp4': case 'video': case 'pinterest': case 'gpt':
+      case 'image': case 'weather': case 'sticker': case 'toimg': case 'tomp4':
       case 'brat': case 'circle': case 'take': case 'fancy': case 'styletext':
       case 'emojimix': case 'tts': case 'vnote': case 'getpp': case 'getbio': case 'vv': case 'vv2':
         return reply(`⚠️ ${PREFIX}${cmd} কমান্ডটির জন্য আলাদা API বা feature integration দরকার; সেটি এই ফাইলে কনফিগার করা নেই।`);
@@ -311,13 +309,10 @@ async function handleMessages(messages, type) {
       if (jid && isGroup(jid) && body && !m.key?.fromMe) {
         const s = settings(jid);
         const participant = m.key.participant;
-        if (s.antilink &&
-            /https?:\/\/|www\.|chat\.whatsapp\.com\/|t\.me\//i.test(body) &&
+        if (s.antilink && /https?:\/\/|www\.|chat\.whatsapp\.com\/|t\.me\//i.test(body) &&
             !body.startsWith(PREFIX) && participant &&
             !(await groupAdmin(jid, participant)) && await botAdmin(jid)) {
-          await sock.sendMessage(jid, {
-            delete: { remoteJid: jid, fromMe: false, id: m.key.id, participant }
-          });
+          await sock.sendMessage(jid, { delete: { remoteJid: jid, fromMe: false, id: m.key.id, participant } });
           continue;
         }
       }
@@ -332,20 +327,14 @@ async function startBot() {
   if (starting || stopping) return;
   starting = true;
   clearTimeout(reconnectTimer);
-
   try {
-    if (!PHONE_NUMBER) {
-      console.error('Missing PHONE_NUMBER: set country code + number as digits only in Render Environment.');
-    }
-
+    if (!PHONE_NUMBER) console.error('Set PHONE_NUMBER in Render Environment: country code + number, digits only.');
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
     const { version, isLatest } = await fetchLatestBaileysVersion();
     console.log('Baileys Web version:', version.join('.'), 'isLatest:', isLatest);
 
     const currentSock = makeWASocket({
-      version,
-      auth: state,
-      logger,
+      version, auth: state, logger,
       markOnlineOnConnect: false,
       syncFullHistory: false,
       connectTimeoutMs: 60000,
@@ -353,63 +342,40 @@ async function startBot() {
     });
     sock = currentSock;
     pairingRequestedForSocket = false;
+    currentSock.ev.on('creds.update', saveCreds);
 
-    currentSock.ev.on('creds.update', async () => {
-      try {
-        await saveCreds();
-      } catch (e) {
-        console.error('Saving credentials failed:', e?.message || e);
-      }
-    });
-
-    currentSock.ev.on('connection.update', async update => {
-      const { connection, qr, lastDisconnect } = update;
-
-      if (connection === 'connecting' || qr) {
-        if (!state.creds.registered && PHONE_NUMBER && !pairingRequestedForSocket) {
-          pairingRequestedForSocket = true;
-          try {
-            // Official Baileys guidance: request pairing only after the socket starts connecting/QR event.
-            const code = await currentSock.requestPairingCode(PHONE_NUMBER);
-            console.log('📱 WhatsApp Pairing Code:', code);
-            console.log('On phone: WhatsApp > Linked devices > Link with phone number instead.');
-          } catch (e) {
-            pairingRequestedForSocket = false;
-            console.error('Pairing code request failed:', e?.stack || e);
-          }
+    currentSock.ev.on('connection.update', async ({ connection, qr, lastDisconnect }) => {
+      if ((connection === 'connecting' || qr) && !state.creds.registered && PHONE_NUMBER && !pairingRequestedForSocket) {
+        pairingRequestedForSocket = true;
+        try {
+          const code = await currentSock.requestPairingCode(PHONE_NUMBER);
+          console.log('📱 WhatsApp Pairing Code:', code);
+          console.log('WhatsApp > Linked devices > Link a device > Link with phone number instead');
+        } catch (e) {
+          pairingRequestedForSocket = false;
+          console.error('Pairing code request failed:', e?.stack || e);
         }
       }
-
       if (connection === 'open') {
         reconnectAttempts = 0;
         pairingRequestedForSocket = false;
         console.log('✅ WhatsApp connected!');
       }
-
       if (connection === 'close') {
         const statusCode = lastDisconnect?.error?.output?.statusCode;
-        const message = lastDisconnect?.error?.message || String(lastDisconnect?.error || '');
-        console.error('WhatsApp disconnected:', statusCode ?? 'unknown', message);
-
+        console.error('WhatsApp disconnected:', statusCode ?? 'unknown', lastDisconnect?.error?.message || '');
         if (stopping || currentSock !== sock) return;
-
         if (statusCode === DisconnectReason.loggedOut) {
-          console.error('401 logged out: automatic retry stopped to avoid an endless pairing loop.');
-          console.error('Do not delete auth data unless you intentionally want to pair from scratch.');
+          console.error('Logged out (401): stopping automatic retry. Check session/account and pairing status.');
           return;
         }
-
         reconnectAttempts += 1;
-        const delay = statusCode === DisconnectReason.restartRequired ? 1000 :
-          Math.min(5000 * reconnectAttempts, 30000);
-        console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttempts})...`);
+        const delay = statusCode === DisconnectReason.restartRequired ? 1000 : Math.min(5000 * reconnectAttempts, 30000);
+        console.log(`Reconnecting in ${delay}ms...`);
         clearTimeout(reconnectTimer);
-        reconnectTimer = setTimeout(() => {
-          if (!stopping) startBot();
-        }, delay);
+        reconnectTimer = setTimeout(() => { if (!stopping) startBot(); }, delay);
       }
     });
-
     currentSock.ev.on('messages.upsert', ({ messages, type }) => {
       handleMessages(messages, type).catch(e => console.error('Message event failed:', e?.message || e));
     });
@@ -417,9 +383,7 @@ async function startBot() {
     console.error('Bot startup failed:', e?.stack || e);
     reconnectAttempts += 1;
     clearTimeout(reconnectTimer);
-    reconnectTimer = setTimeout(() => {
-      if (!stopping) startBot();
-    }, Math.min(5000 * reconnectAttempts, 30000));
+    reconnectTimer = setTimeout(() => { if (!stopping) startBot(); }, Math.min(5000 * reconnectAttempts, 30000));
   } finally {
     starting = false;
   }
