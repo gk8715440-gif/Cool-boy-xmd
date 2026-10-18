@@ -853,6 +853,80 @@ async function startBot() {
               'Session logged out. Clearing old auth session...'
             );
 
-            try {
+                        try {
               await rm(AUTH, {
-                recursive:
+                recursive: true,
+                force: true
+              });
+            } catch (error) {
+              console.error(
+                'Could not clear auth session:',
+                error?.message || error
+              );
+            } finally {
+              resettingAuth = false;
+            }
+          }
+
+          if (!shuttingDown && retries < 5) {
+            retries++;
+            const delay = Math.min(
+              5000 * retries,
+              30000
+            );
+
+            console.log(
+              `Reconnecting in ${delay / 1000} seconds...`
+            );
+
+            reconnectTimer = setTimeout(() => {
+              void startBot();
+            }, delay);
+          } else if (retries >= 5) {
+            console.error(
+              'Maximum reconnect attempts reached.'
+            );
+          }
+        }
+      }
+    );
+  } catch (error) {
+    console.error(
+      'Bot startup error:',
+      error?.stack || error
+    );
+  } finally {
+    starting = false;
+  }
+}
+
+// ================= SHUTDOWN =================
+let shuttingDown = false;
+
+async function shutdown() {
+  if (shuttingDown) return;
+
+  shuttingDown = true;
+  clearTimeout(reconnectTimer);
+
+  try {
+    if (sock) {
+      sock.end(undefined);
+    }
+  } catch (error) {
+    console.error(
+      'Shutdown error:',
+      error?.message || error
+    );
+  }
+
+  console.log('Bot stopped.');
+  process.exit(0);
+}
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+
+void startBot();
+              
+        
