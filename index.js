@@ -640,18 +640,23 @@ async function startBot() {
   reconnecting = true;
 
   try {
-    const { state, saveCreds } = await useMultiFileAuthState(
-      './auth_info_baileys'
-    );
+    const { version, isLatest } = await fetchLatestWaWebVersion();
 
-    sock = makeWASocket({
-      auth: state,
-      logger,
-      printQRInTerminal: false,
-      browser: ['Ubuntu', 'Chrome', '120.0.0'],
-      markOnlineOnConnect: false,
-      syncFullHistory: false
-    });
+console.log(
+  'WhatsApp Web version:',
+  version.join('.'),
+  'Latest:',
+  isLatest
+);
+
+sock = makeWASocket({
+  version,
+  auth: state,
+  logger,
+  browser: ['Ubuntu', 'Chrome', '120.0.0'],
+  markOnlineOnConnect: false,
+  syncFullHistory: false
+});
 
     sock.ev.on('creds.update', saveCreds);
 
