@@ -194,7 +194,7 @@ async function startBot() {
 
       for (const message of messages) {
         try {
-          if (!message.message || message.key.fromMe) continue;
+          if (!message.message) continue;
 
           const sender = message.key.remoteJid;
           if (!sender || sender === 'status@broadcast') continue;
