@@ -735,115 +735,174 @@ export function createCommandHandler({ getSock, groupSettings }) {
       return;
     }
 
+   
     // =========================
-    // YOUTUBE PLAY / SONG
+    // FREE TO USE MUSIC API
+    // .song and .play
     // =========================
 
-    if (
-      command === 'play' ||
-      command === 'song'
-    ) {
-
-      const songName =
-        args.join(' ').trim();
+    if (['song', 'play'].includes(command)) {
+      const songName = args.join(' ').trim();
 
       if (!songName) {
-
         await reply(
-          `👉 ব্যবহার: ${PREFIX}${command} গানের নাম`
+          `🎵 ব্যবহার:\n` +
+          `${PREFIX}song গানের নাম\n` +
+          `${PREFIX}play গানের নাম\n\n` +
+          `উদাহরণ: ${PREFIX}song lofi`
         );
-
-        return;
-      }
-
-      const apiKey =
-        process.env.YOUTUBE_API_KEY;
-
-      if (!apiKey) {
-
-        await reply(
-          '❌ YOUTUBE_API_KEY Render Environment Variables-এ সেট করা নেই।'
-        );
-
         return;
       }
 
       try {
+        await reply('🔎 গান খোঁজা হচ্ছে: ' + songName);
 
-        const params =
-          new URLSearchParams({
-            part: 'snippet',
-            q: songName,
-            key: apiKey,
-            maxResults: '1',
-            type: 'video'
-          });
+        const apiUrl = new URL(
+          'https://api.freetouse.com/v3/music/tracks/search'
+        );
 
-        const response =
-          await fetch(
-            `https://www.googleapis.com/youtube/v3/search?${params.toString()}`
-          );
+        apiUrl.searchParams.set('query', songName);
+        apiUrl.searchParams.set('limit', '5');
+        apiUrl.searchParams.set('order', 'plays');
+        apiUrl.searchParams.set('sort', 'desc');
+
+        const response = await fetch(apiUrl, {
+          signal: AbortSignal.timeout(20000)
+        });
 
         if (!response.ok) {
+          throw new Error('Music API status: ' + response.status);
+        }
 
-          const errorText =
-            await response.text();
+        const result = await response.json();
+        const tracks = Array.isArray(result.data)
+          ? result.data
+          : [];
 
-          console.error(
-            'YouTube API error:',
-            errorText
-          );
-
+        if (!tracks.length) {
           await reply(
-            '❌ YouTube search করতে সমস্যা হয়েছে। API key বা API settings চেক করো।'
+            '❌ কোনো গান পাওয়া যায়নি। অন্য নাম দিয়ে চেষ্টা করো।'
           );
-
           return;
         }
 
-        const data =
-          await response.json();
+        // .song: show search results and MP3 links
+        if (command === 'song') {
+          const lines = tracks.map((track, index) => {
+            const artistList = Array.isArray(track.artists)
+              ? track.artists.map(a =>
+                  typeof a === 'string'
+                    ? a
+                    : a?.name || a?.title || ''
+                ).filter(Boolean).join(', ')
+              : '';
 
-        const video =
-          data.items?.[0];
+            const duration = Number(track.duration) || 0;
+            const time = duration
+              ? `${Math.floor(duration / 60)}:${String(
+                  duration % 60
+                ).padStart(2, '0')}`
+              : 'Unknown';
 
-        if (
-          !video?.id?.videoId
-        ) {
+            return (
+              `${index + 1}. ${track.title || 'Unknown Title'}\n` +
+              `👤 Artist: ${artistList || 'Unknown'}\n` +
+              `⏱️ Duration: ${time}\n` +
+              `🎧 MP3: ${track.files?.mp3 || 'লিংক পাওয়া যায়নি'}`
+            );
+          });
 
           await reply(
-            `❌ "${songName}" গানটি খুঁজে পাওয়া যায়নি।`
+            `🎵 ${BOT_NAME} SONG SEARCH\n\n` +
+            lines.join('\n\n')
           );
-
           return;
         }
 
-        const title =
-          video.snippet?.title ||
-          songName;
+        // .play: select a free track with an MP3 URL
+        const track = tracks.find(
+          item =>
+            item.is_premium !== true &&
+            typeof item.files?.mp3 === 'string' &&
+            item.files.mp3.startsWith('https://')
+        );
 
-        const channel =
-          video.snippet?.channelTitle ||
-          '';
-
-        const videoUrl =
-          `https://www.youtube.com/watch?v=${video.id.videoId}`;
+        if (!track) {
+          await reply(
+            '❌ সরাসরি ফ্রি MP3 পাওয়া যায়নি।\n' +
+            `গানের লিংক দেখতে ${PREFIX}song ${songName} ব্যবহার করো।`
+          );
+          return;
+        }
 
         await reply(
-          `🎵 ${title}\n` +
-          `📺 ${channel}\n\n` +
-          `▶️ YouTube:\n${videoUrl}`
+          `⬇️ ডাউনলোড হচ্ছে: ${track.title || songName}`
+        );
+
+        const audioResponse = await fetch(track.files.mp3, {
+          signal: AbortSignal.timeout(60000)
+        });
+
+        if (!audioResponse.ok) {
+          throw new Error(
+            'Audio download status: ' + audioResponse.status
+          );
+        }
+
+        const contentType = (
+          audioResponse.headers.get('content-type') || ''
+        ).toLowerCase();
+
+        if (
+          contentType.includes('text/html') ||
+          contentType.includes('application/json')
+        ) {
+          throw new Error('The MP3 URL did not return an audio file');
+        }
+
+        const maxSize = 15 * 1024 * 1024;
+        const declaredSize = Number(
+          audioResponse.headers.get('content-length') || 0
+        );
+
+        if (declaredSize > maxSize) {
+          await reply('❌ গানটি ১৫ MB-এর বেশি, তাই পাঠানো যাচ্ছে না।');
+          return;
+        }
+
+        const audioBuffer = Buffer.from(
+          await audioResponse.arrayBuffer()
+        );
+
+        if (
+          audioBuffer.length === 0 ||
+          audioBuffer.length > maxSize
+        ) {
+          await reply('❌ অডিও ফাইলটি খালি অথবা অনেক বড়।');
+          return;
+        }
+
+        const safeName = String(track.title || 'music')
+          .replace(/[\\/:*?"<>|]/g, '_')
+          .slice(0, 80);
+
+        await sock.sendMessage(
+          sender,
+          {
+            audio: audioBuffer,
+            mimetype: 'audio/mpeg',
+            fileName: `${safeName}.mp3`,
+            ptt: false
+          },
+          { quoted: message }
         );
 
       } catch (error) {
-
-        console.error(
-          'YouTube search error:',
-          error
-        );
+        console.error('[MUSIC ERROR]', error);
 
         await reply(
-          '❌ গান খুঁজতে সমস্যা হয়েছে। কিছুক্ষণ পরে আবার চেষ্টা করো।'
+          '❌ গান খুঁজতে বা পাঠাতে সমস্যা হয়েছে।\n' +
+          'কিছুক্ষণ পরে আবার চেষ্টা করো।'
         );
       }
 
