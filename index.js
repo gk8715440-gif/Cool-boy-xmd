@@ -27,7 +27,7 @@ if (typeof makeWASocket !== 'function') {
 }
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 10000;
 const logger = pino({ level: 'silent' });
 
 let sock;
@@ -36,7 +36,7 @@ let stopping = false;
 let reconnectTimer;
 
 const groupSettings = new Map();
-const AUTH_FOLDER = './auth_info';
+const AUTH_FOLDER = process.env.AUTH_DIR || './auth_info';
 
 app.get('/', (req, res) => {
   res.send(`${BOT_NAME} WhatsApp Bot is running!`);
@@ -68,10 +68,6 @@ function getText(message) {
   );
 }
 
-function getNumber(jid) {
-  return (jid || '').split('@')[0].replace(/\D/g, '');
-}
-
 function isLink(text) {
   return /https?:\/\/|www\.|chat\.whatsapp\.com\/|t\.me\//i.test(text);
 }
@@ -88,8 +84,10 @@ async function isGroupAdmin(groupId, participantJid) {
     p => jidNormalizedUser(p.id) === normalized
   );
 
-  return participant?.admin === 'admin' ||
-    participant?.admin === 'superadmin';
+  return (
+    participant?.admin === 'admin' ||
+    participant?.admin === 'superadmin'
+  );
 }
 
 async function isBotAdmin(groupId) {
@@ -100,8 +98,10 @@ async function isBotAdmin(groupId) {
     p => jidNormalizedUser(p.id) === botJid
   );
 
-  return participant?.admin === 'admin' ||
-    participant?.admin === 'superadmin';
+  return (
+    participant?.admin === 'admin' ||
+    participant?.admin === 'superadmin'
+  );
 }
 
 const processCommand = createCommandHandler({
@@ -109,8 +109,60 @@ const processCommand = createCommandHandler({
   groupSettings
 });
 
+// Welcome ও Goodbye আলাদা মেসেজ
+async function handleGroupParticipantsUpdate(update) {
+  try {
+    const { id, participants, action } = update;
+
+    if (!id || !Array.isArray(participants)) return;
+
+    const settings = groupSettings.get(id) || {};
+
+    for (const item of participants) {
+      const participant =
+        typeof item === 'string' ? item : item?.id;
+
+      if (!participant) continue;
+
+      const number = participant.split('@')[0];
+
+      // Welcome Message
+      if (action === 'add' && settings.welcome) {
+        await sock.sendMessage(id, {
+          text:
+            `🌸╭━━━〔 স্বাগতম 〕━━━╮🌸\n\n` +
+            `💖 স্বাগতম, @${number}!\n\n` +
+            `আমাদের ছোট্ট পরিবারে তোমাকে আন্তরিক স্বাগতম। 🥰\n` +
+            `সবার সঙ্গে ভালোভাবে মিশবে এবং গ্রুপের নিয়ম মেনে চলবে।\n\n` +
+            `তোমার আগমনে আমরা আনন্দিত। ❤️\n\n` +
+            `🌸╰━━━━━━━━━━━━╯🌸`,
+          mentions: [participant]
+        });
+      }
+
+      // Goodbye Message
+      if (action === 'remove' && settings.goodbye) {
+        await sock.sendMessage(id, {
+          text:
+            `🥀╭━━━〔 বিদায় 〕━━━╮🥀\n\n` +
+            `বিদায়, @${number}!\n\n` +
+            `আমাদের গ্রুপে তোমার উপস্থিতি ভালো লাগত।\n` +
+            `যেখানেই থাকো, ভালো থেকো এবং সুস্থ থেকো। ❤️\n\n` +
+            `তোমার আগামী দিনের জন্য রইল অনেক শুভকামনা।\n` +
+            `আবার কোনো একদিন দেখা হবে। 🌷\n\n` +
+            `🥀╰━━━━━━━━━━━━╯🥀`,
+          mentions: [participant]
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Welcome/Goodbye error:', error);
+  }
+}
+
 async function startBot() {
   if (reconnecting || stopping) return;
+
   reconnecting = true;
 
   try {
@@ -138,6 +190,12 @@ async function startBot() {
 
     sock.ev.on('creds.update', saveCreds);
 
+    // গ্রুপে কেউ যোগ দিলে বা চলে গেলে
+    sock.ev.on(
+      'group-participants.update',
+      handleGroupParticipantsUpdate
+    );
+
     sock.ev.on('connection.update', async update => {
       const { connection, lastDisconnect } = update;
 
@@ -162,7 +220,7 @@ async function startBot() {
 
         if (code === DisconnectReason.loggedOut) {
           console.log(
-            'WhatsApp logged out. Auth session নতুন করে Pair করতে হবে।'
+            'WhatsApp logged out. নতুন করে Pair করতে হবে।'
           );
           return;
         }
@@ -172,16 +230,18 @@ async function startBot() {
       }
     });
 
+    // Pairing Code
     if (!state.creds.registered) {
       if (!PHONE_NUMBER) {
         console.log(
-          'Render Environment-এ PHONE_NUMBER সেট করো।'
+          'Environment Variables-এ PHONE_NUMBER সেট করো।'
         );
       } else {
         try {
           await new Promise(resolve => setTimeout(resolve, 2000));
 
           const code = await sock.requestPairingCode(PHONE_NUMBER);
+
           console.log('WhatsApp Pairing Code:', code);
         } catch (error) {
           console.error('Pairing code error:', error.message);
@@ -189,6 +249,7 @@ async function startBot() {
       }
     }
 
+    // Message Handler
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       if (type !== 'notify') return;
 
@@ -197,10 +258,12 @@ async function startBot() {
           if (!message.message) continue;
 
           const sender = message.key.remoteJid;
+
           if (!sender || sender === 'status@broadcast') continue;
 
           const text = getText(message.message);
 
+          // Anti-link
           if (
             sender.endsWith('@g.us') &&
             text &&
@@ -224,6 +287,7 @@ async function startBot() {
                   participant
                 }
               });
+
               continue;
             }
           }
@@ -236,45 +300,42 @@ async function startBot() {
         }
       }
     });
+
   } catch (error) {
     console.error('Bot startup error:', error);
+
     reconnecting = false;
 
     if (!stopping) {
       clearTimeout(reconnectTimer);
       reconnectTimer = setTimeout(startBot, 10000);
     }
+
     return;
   }
 
   reconnecting = false;
 }
 
-process.on('SIGTERM', async () => {
+// Graceful Shutdown
+async function shutdown() {
   stopping = true;
   clearTimeout(reconnectTimer);
+
   console.log('Shutting down bot...');
 
   try {
-    if (sock) sock.end(undefined);
+    if (sock) {
+      sock.end(undefined);
+    }
   } catch (error) {
     console.error('Shutdown error:', error.message);
   }
 
   process.exit(0);
-});
+}
 
-process.on('SIGINT', async () => {
-  stopping = true;
-  clearTimeout(reconnectTimer);
-
-  try {
-    if (sock) sock.end(undefined);
-  } catch (error) {
-    console.error(error.message);
-  }
-
-  process.exit(0);
-});
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 
 startBot();
