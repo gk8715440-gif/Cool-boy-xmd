@@ -1,9 +1,15 @@
 
 export const BOT_NAME = 'Cool-boy-xmd';
+
 export const PREFIX = '.';
 
-export const PHONE_NUMBER = (process.env.PHONE_NUMBER || '').replace(/\D/g, '');
-export const OWNER_NUMBER = (process.env.OWNER_NUMBER || '').replace(/\D/g, '');
+export const PHONE_NUMBER = (
+  process.env.PHONE_NUMBER || ''
+).replace(/\D/g, '');
+
+export const OWNER_NUMBER = (
+  process.env.OWNER_NUMBER || ''
+).replace(/\D/g, '');
 
 export const MENU_IMAGE =
   'https://raw.githubusercontent.com/gk8715440-gif/Cool-boy-xmd/main/file_0000000012548243bf5dee8a3c0b406a.png';
@@ -16,136 +22,45 @@ export const menu = `
 ╰━━━━━━━━━━━━━━━━━━━━━━╯
 
 〔 GENERAL 〕
-.alive
-.delete
-.mee
 .menu
-.pair
-.ping
 .help
+.ping
+.alive
+.uptime
 .owner
 .github
-.uptime
-
-〔 MUSIC 〕
-.csong
-.lyrics
-.play
-.song
-
-〔 DOWNLOADER 〕
-.fb
-.insta
-.pinterest
-.terabox
-.video
-.xnxx
-
-〔 STICKER 〕
-.addspk
-.brat
-.circle
-.delspk
-.miku
-.spk
-.sticker
-.take
-.tgspk
-.tgsticker
-.toimg
-.tomp4
-
-〔 TEXT 〕
-.fancy
-.styletext
-
-〔 FUN 〕
-.kiss
-.nsfw
-.ship
-.waifu
-.waifu2
-
-〔 GROUP 〕
-.add
-.admins
-.antibadword
-.antibot
-.antidemote
-.antigmention
-.antigstatus
-.antilink
-.antimedia
-.antimention
-.antipromote
-.antisticker
-.demote
-.fullgpp
-.goodbye
-.greacT
-.groupinfo
-.gstatus
-.inactive
-.kick
-.kickall
-.leave
-.msgdlt
-.mute
-.promote
-.resetwarn
-.revoke
-.setdesc
-.setname
-.tag
-.tagall
-.testgoodbye
-.testwelcome
-.unmute
-.warn
-.warns
-.welcome
-.open
-.close
-
-〔 OWNER 〕
-.antidelete
-.ban
-.block
-.broadcast
-.chr
-.cpost
-.fullpp
-.join
-.listban
-.mention
-.mode
-.restart
-.sudo
-.totalbot
-.unban
-.unblock
-
-〔 SETTINGS 〕
-.alwaysonline
-.autoreact
-.autoread
-.autotyping
-.bot_image
-.botname
-.prefix
-.setowner
-.settings
-
-〔 UTILITY 〕
-.autostatus
+.jid
+.mee
 .gjid
 .info
-.jid
-.lid
-.url
-.vv
-.vv2
-.weather
+
+〔 MUSIC 〕
+.song
+.play
+
+〔 GROUP 〕
+.groupinfo
+.admins
+.tagall
+.tag
+.kick
+.promote
+.demote
+.open
+.close
+.setname
+.setdesc
+.antilink on/off
+.welcome on/off
+.goodbye on/off
+.delete
+.settings
+
+〔 SETTINGS 〕
+.prefix
+.botname
+.bot_image
+.setowner
 
 ╭━━━━━━━━━━━━━━━━━━━━━━╮
 Prefix: ${PREFIX}
